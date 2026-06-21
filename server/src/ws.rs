@@ -14,7 +14,7 @@ use x4mp_proto::{
     PROTO_VERSION, WsErrorFrame,
 };
 
-use crate::debug_bundle::write_rejection_bundle;
+use crate::debug_bundle::{write_debug_bundle_for_state, DebugBundleRequest};
 use crate::session::{AppState, DEV_JOIN_CODE};
 use crate::tracing_util::ws_message_span;
 
@@ -51,7 +51,6 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
     let trace_id = Uuid::new_v4();
     let mut handshaken = false;
     let mut client_id = Uuid::nil();
-    let mut recent_events: Vec<EventEnvelope> = Vec::new();
 
     while let Some(msg) = socket.next().await {
         let msg = match msg {
@@ -101,12 +100,15 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
                 }
                 HandshakeResult::Rejected { err } => {
                     let _ = send_json(&mut socket, &err).await;
-                    let _ = write_rejection_bundle(
+                    let request = DebugBundleRequest::from_rejection(
                         state.session_id,
-                        &err.code,
-                        &data_root(),
-                        &recent_events,
+                        "handshake_rejected",
+                        Some(trace_id),
+                        None,
+                        err.code.clone(),
+                        err.message.clone(),
                     );
+                    let _ = write_debug_bundle_for_state(&data_root(), &state, &request);
                     break;
                 }
             }
@@ -121,11 +123,6 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
         if let Err(e) = state.event_log.append(&stamped) {
             tracing::error!(error = %e, "failed to append event log");
-        }
-
-        recent_events.push(stamped.clone());
-        if recent_events.len() > 200 {
-            recent_events.remove(0);
         }
 
         tracing::debug!(

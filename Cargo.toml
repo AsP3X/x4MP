@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["proto", "server", "bridge"]
+members = ["proto", "server", "bridge", "tools/replay"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,3 +16,4 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
