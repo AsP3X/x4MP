@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["proto", "server", "bridge", "tools/replay"]
+exclude = ["tools/spike-feeder"]
 
 [workspace.package]
 version = "0.1.0"

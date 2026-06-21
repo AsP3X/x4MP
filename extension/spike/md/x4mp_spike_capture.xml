@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Human: MD cues for Q1 capture spike — periodic tick + menu start/stop. -->
+<!-- Agent: SIGNALS x4mp.spike.capture.tick every 0.1s when capture active. -->
+<mdscript name="X4MP_Spike_Capture" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+    <!-- Human: Init on new game and save load. -->
+    <!-- Agent: waits md.Setup.Start; RAISES capture ready state. -->
+    <cue name="SpikeCapture_Init" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.Setup.Start"/>
+      </conditions>
+      <actions>
+        <set_value name="$SpikeCaptureActive" exact="false"/>
+        <raise_lua_event name="'x4mp.spike.capture.stop'" param="''"/>
+      </actions>
+    </cue>
+
+    <!-- Human: 10 Hz tick while capture is active. -->
+    <!-- Agent: EMITS x4mp.spike.capture.tick to Lua frame handler. -->
+    <cue name="SpikeCapture_Tick" instantiate="true" checkinterval="0.1s">
+      <conditions>
+        <check_value value="$SpikeCaptureActive" exact="true"/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.spike.capture.tick'" param="''"/>
+      </actions>
+    </cue>
+
+    <!-- Human: Dev menu hook — start capture (bind to hotkey in manual smoke). -->
+    <!-- Agent: SETS $SpikeCaptureActive; STARTS Lua capture loop. -->
+    <cue name="SpikeCapture_Start" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.X4MP_Spike_Capture.SpikeCapture_Start"/>
+      </conditions>
+      <actions>
+        <set_value name="$SpikeCaptureActive" exact="true"/>
+        <raise_lua_event name="'x4mp.spike.capture.start'" param="''"/>
+        <debug_text text="'[X4MP spike] capture START'" chance="100"/>
+      </actions>
+    </cue>
+
+    <cue name="SpikeCapture_Stop" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.X4MP_Spike_Capture.SpikeCapture_Stop"/>
+      </conditions>
+      <actions>
+        <set_value name="$SpikeCaptureActive" exact="false"/>
+        <raise_lua_event name="'x4mp.spike.capture.stop'" param="''"/>
+        <debug_text text="'[X4MP spike] capture STOP'" chance="100"/>
+      </actions>
+    </cue>
+  </cues>
+</mdscript>

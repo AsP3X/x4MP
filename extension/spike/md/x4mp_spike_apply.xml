@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Human: MD cues for Q2 apply spike — spawn proxy + apply external positions. -->
+<!-- Agent: APPLIES x4mp.spike.apply.position to $SpikeProxyShip when samples arrive. -->
+<mdscript name="X4MP_Spike_Apply" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+    <cue name="SpikeApply_Init" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.Setup.Start"/>
+      </conditions>
+      <actions>
+        <set_value name="$SpikeApplyActive" exact="false"/>
+        <set_value name="$SpikeProxyShip" exact="null"/>
+      </actions>
+    </cue>
+
+    <!-- Human: Spawn a proxy ship near the player for apply testing. -->
+    <!-- Agent: CREATE_SHIP in player sector; STORES id in $SpikeProxyShip. -->
+    <cue name="SpikeApply_SpawnProxy" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.X4MP_Spike_Apply.SpikeApply_SpawnProxy"/>
+      </conditions>
+      <actions>
+        <find_ship name="$PlayerShip" space="player.entity" multiple="false"/>
+        <find_sector name="$Sector" space="$PlayerShip" required="true"/>
+        <create_ship name="$SpikeProxyShip" sector="$Sector" macro="ship_xs_xperimental_01_a_macro">
+          <owner exact="faction.player"/>
+          <position object="$PlayerShip" x="0" y="0" z="2km"/>
+        </create_ship>
+        <debug_text text="'[X4MP spike] proxy ship spawned'" chance="100"/>
+      </actions>
+    </cue>
+
+    <!-- Human: Start apply loop after proxy exists. -->
+    <!-- Agent: RAISES Lua apply.start with $SpikeProxyShip id. -->
+    <cue name="SpikeApply_Start" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.X4MP_Spike_Apply.SpikeApply_Start"/>
+      </conditions>
+      <actions>
+        <set_value name="$SpikeApplyActive" exact="true"/>
+        <raise_lua_event name="'x4mp.spike.apply.start'" param="$SpikeProxyShip + ',' + 'lerp'"/>
+        <debug_text text="'[X4MP spike] apply START'" chance="100"/>
+      </actions>
+    </cue>
+
+    <cue name="SpikeApply_Stop" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.X4MP_Spike_Apply.SpikeApply_Stop"/>
+      </conditions>
+      <actions>
+        <set_value name="$SpikeApplyActive" exact="false"/>
+        <raise_lua_event name="'x4mp.spike.apply.stop'" param="''"/>
+      </actions>
+    </cue>
+
+    <!-- Human: 10 Hz apply tick — read pipe + interpolate. -->
+    <cue name="SpikeApply_Tick" instantiate="true" checkinterval="0.1s">
+      <conditions>
+        <check_value value="$SpikeApplyActive" exact="true"/>
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4mp.spike.apply.tick'" param="''"/>
+      </actions>
+    </cue>
+
+    <!-- Human: Move proxy ship to sample coordinates (snap or lerp step). -->
+    <!-- Agent: APPLIES set_object_position on $SpikeProxyShip — API under validation. -->
+    <cue name="SpikeApply_SetPosition" instantiate="true">
+      <conditions>
+        <event_lua_signal name="'x4mp.spike.apply.position'"/>
+      </conditions>
+      <actions>
+        <set_value name="$TargetShip" exact="event.param.{1}"/>
+        <set_value name="$X" exact="event.param.{2}"/>
+        <set_value name="$Y" exact="event.param.{3}"/>
+        <set_value name="$Z" exact="event.param.{4}"/>
+        <set_object_position object="$TargetShip" x="$X" y="$Y" z="$Z"/>
+      </actions>
+    </cue>
+  </cues>
+</mdscript>

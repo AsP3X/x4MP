@@ -90,6 +90,8 @@ X4 is **non-deterministic**: two instances loading the same save and running wil
 
 This policy is the single biggest determinant of whether co-op feels coherent. It is validated by the **M0.75 feasibility spike** before any protocol work for M1 ship sync begins.
 
+**M0.75 spike artifacts:** throwaway code under `extension/spike/` and `tools/spike-feeder/`; measurement notes and go/no-go in `docs/superpowers/notes/spike-*.md`. Decision status: **PENDING** until manual two-instance X4 smoke is complete.
+
 ## Wire Protocol
 
 ### Transport
