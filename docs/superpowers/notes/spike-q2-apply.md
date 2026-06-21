@@ -78,6 +78,7 @@ Server-side sanity metrics emitted ~1 Hz as `spike.apply_pos` `{seq, proxy_x, pr
 - Smoothness is entirely **our** responsibility — the engine will not interpolate a teleported object. Any client proxy in M1 must run a client-side interpolation buffer fed by host snapshots (matches `authoring-x4-md-lua-hooks` guidance: "interpolated between host snapshots").
 - Tooling caveat surfaced during the spike: SirNuke options registered with `$category` auto-create a submenu keyed by script name that is **not** re-registration-safe → `Submenu id conflicts with prior registered id` on reload drops all rows. Register options **without** `$category` (see `x4mp_spike_menu.xml`).
 - Install drift caveat: the X4 extension folder must be a **junction** to the repo (or use `tools/dev-stack/sync-mod.ps1`) or edits silently don't reach the game.
+- **Menu WIP caveat (2026-06-21):** `x4mp_spike_menu.xml` is mid-refactor (custom `Register_Options_Menu` submenu) and currently exposes **only** the Q1 capture toggle. The Q2 apply toggle is **not** in the menu right now — to re-test apply in-game, re-add the apply toggle (the `SpikeOption_ToggleApply` logic from the prior `Register_Option` version flips `md.X4MP_Spike_Apply.ApplyState.$ApplyActive`). The apply cue code itself is unchanged.
 
 ## Verdict
 

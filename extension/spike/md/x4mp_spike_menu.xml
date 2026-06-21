@@ -1,132 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Human: Extension Options row — one capture toggle (Start/Stop button label). -->
-<!-- Agent: CALLS Simple_Menu_Options.Register_Option; SYNC start/stop with capture Globals. -->
+<!-- Human: Extension Options submenu — one toggle button (Start/Stop capture labels). -->
+<!-- Agent: CALLS Simple_Menu_API Make_Button + Update_Widget; SIGNALS SpikeCapture_Start/Stop. -->
 <mdscript name="X4MP_Spike_Menu" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
-    <!-- Human: Register when SirNuke options API reloads (not Setup.Start — API not ready yet). -->
-    <!-- Agent: Registers two buttons DIRECTLY into Extension Options (no $category). -->
-    <!-- Agent: WHY no $category: $category makes the API auto-create a submenu whose id is derived -->
-    <!-- Agent: from this script name ('x4mp_spike_menu'). That submenu registration is NOT -->
-    <!-- Agent: re-registration-safe, so the 2nd Register_Option / a menu reload throws -->
-    <!-- Agent: "Submenu id conflicts with prior registered id" and the API DROPS all our rows -->
-    <!-- Agent: (=> buttons vanish). The documented reload-safe pattern registers without a category, -->
-    <!-- Agent: so we group via the $name prefix instead. -->
-    <cue name="Spike_Register_Option" instantiate="true">
+    <!-- Human: Register spike submenu when SirNuke Simple Menu API reloads. -->
+    <!-- Agent: WRITES "X4MP Spike" under Main Menu -> Extension Options. -->
+    <cue name="Spike_Register_Options_Menu" instantiate="true">
       <conditions>
-        <event_cue_signalled cue="md.Simple_Menu_Options.Reloaded"/>
+        <check_any>
+          <event_cue_signalled cue="md.Simple_Menu_API.Reloaded"/>
+          <event_cue_signalled cue="md.Setup.Start"/>
+        </check_any>
       </conditions>
       <actions>
         <signal_cue_instantly
-          cue="md.Simple_Menu_Options.Register_Option"
+          cue="md.Simple_Menu_API.Register_Options_Menu"
           param="table[
-            $id        = 'x4mp_spike_capture',
-            $name      = 'X4MP Spike: Ship position capture',
-            $mouseover = 'Toggle Q1 sampling (~10 Hz). Run tools/dev-stack/start-host.ps1 first.',
-            $default   = 0,
-            $type      = 'button',
-            $callback  = SpikeOption_ToggleCapture,
-            $skip_initial_callback = 1,
-            ]"/>
-        <!-- Q2 apply loopback: spawns a proxy ship and drives it from the player's delayed path. -->
-        <signal_cue_instantly
-          cue="md.Simple_Menu_Options.Register_Option"
-          param="table[
-            $id        = 'x4mp_spike_apply',
-            $name      = 'X4MP Spike: Proxy apply loopback',
-            $mouseover = 'Q2: spawn a proxy 4km away; replay your ~2s-delayed path, interpolated @~40Hz.',
-            $default   = 0,
-            $type      = 'button',
-            $callback  = SpikeOption_ToggleApply,
-            $skip_initial_callback = 1,
+            $id       = 'x4mp_spike_menu',
+            $columns  = 1,
+            $title    = 'X4MP Spike',
+            $onOpen   = Spike_Build_Options_Menu,
             ]"/>
       </actions>
     </cue>
 
-    <!-- Human: SirNuke ON/OFF toggle — set capture flag inline and remap label to Start/Stop. -->
-    <!-- Agent: READS event.param.$value; WRITES md.X4MP_Spike_Capture.Globals.$CaptureActive directly. -->
-    <!-- Agent: Inline (no cross-script signal_cue, which failed); EMITS status via md.Named_Pipes.Write. -->
+    <!-- Human: Label for the capture toggle reflects live capture state. -->
+    <!-- Agent: READS md.X4MP_Spike_Capture.Globals.$CaptureActive; SETS $CaptureButtonLabel. -->
+    <library name="Capture_Button_Label">
+      <actions>
+        <do_if value="@md.X4MP_Spike_Capture.Globals.$CaptureActive">
+          <set_value name="$CaptureButtonLabel" exact="'Stop capture'"/>
+        </do_if>
+        <do_else>
+          <set_value name="$CaptureButtonLabel" exact="'Start capture'"/>
+        </do_else>
+      </actions>
+    </library>
+
+    <!-- Human: Build one toggle row — click flips capture and re-labels the button. -->
+    <!-- Agent: CALLS Make_Button with onClick SpikeOption_ToggleCapture. -->
+    <cue name="Spike_Build_Options_Menu" instantiate="true">
+      <conditions>
+        <event_cue_signalled/>
+      </conditions>
+      <actions>
+        <include_actions ref="Capture_Button_Label"/>
+        <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row"/>
+        <signal_cue_instantly
+          cue="md.Simple_Menu_API.Make_Button"
+          param="table[
+            $id           = 'x4mp_spike_capture_toggle',
+            $col          = 1,
+            $text         = table[$text = $CaptureButtonLabel],
+            $mouseOverText = 'Toggle Q1 ship sampling (~10 Hz). Run tools/dev-stack/start-host.ps1 first.',
+            $onClick      = SpikeOption_ToggleCapture,
+            ]"/>
+      </actions>
+    </cue>
+
+    <!-- Human: Toggle capture on/off and refresh button text in the open menu. -->
+    <!-- Agent: SIGNALS SpikeCapture_Start or Stop; UPDATES widget label via Update_Widget. -->
     <cue name="SpikeOption_ToggleCapture" instantiate="true">
       <conditions>
         <event_cue_signalled/>
       </conditions>
       <actions>
-        <!-- Confirm the callback fires at all, regardless of state. -->
-        <signal_cue_instantly
-          cue="md.Named_Pipes.Write"
-          param="table[
-            $pipe = 'x4mp_bridge',
-            $msg  = '{&quot;type&quot;:&quot;spike.menu_toggle&quot;,&quot;value&quot;:' + (if event.param.$value then 1 else 0) + '}',
-            ]"/>
-        <!-- Drive off OUR flag, NOT SirNuke's persisted $value (which is stale after a -->
-        <!-- save reload that reset $CaptureActive). Flip whatever the real state is. -->
-        <do_if value="not @md.X4MP_Spike_Capture.Globals.$CaptureActive">
-          <!-- Capture ON: set shared flag so Spike_Sampler begins emitting samples. -->
-          <set_value name="md.X4MP_Spike_Capture.Globals.$CaptureActive" exact="true"/>
-          <set_value name="md.X4MP_Spike_Capture.Globals.$SampleSeq" exact="0"/>
-          <signal_cue_instantly
-            cue="md.Named_Pipes.Write"
-            param="table[
-              $pipe = 'x4mp_bridge',
-              $msg  = '{&quot;type&quot;:&quot;spike.capture.started&quot;}',
-              ]"/>
-          <set_value name="$CaptureButtonLabel" exact="'Stop capture'"/>
+        <do_if value="@md.X4MP_Spike_Capture.Globals.$CaptureActive">
+          <signal_cue cue="md.X4MP_Spike_Capture.Globals.SpikeCapture_Stop"/>
         </do_if>
         <do_else>
-          <set_value name="md.X4MP_Spike_Capture.Globals.$CaptureActive" exact="false"/>
-          <signal_cue_instantly
-            cue="md.Named_Pipes.Write"
-            param="table[
-              $pipe = 'x4mp_bridge',
-              $msg  = '{&quot;type&quot;:&quot;spike.capture.stopped&quot;}',
-              ]"/>
-          <set_value name="$CaptureButtonLabel" exact="'Start capture'"/>
+          <signal_cue cue="md.X4MP_Spike_Capture.Globals.SpikeCapture_Start"/>
         </do_else>
+        <include_actions ref="Capture_Button_Label"/>
         <signal_cue_instantly
           cue="md.Simple_Menu_API.Update_Widget"
           param="table[
-            $id   = 'x4mp_spike_capture',
+            $id   = 'x4mp_spike_capture_toggle',
             $type = 'button',
             $text = table[$text = $CaptureButtonLabel],
-            ]"/>
-      </actions>
-    </cue>
-
-    <!-- Human: Q2 apply toggle — flips the apply loop on/off. First ON spawns the proxy ship. -->
-    <!-- Agent: WRITES md.X4MP_Spike_Apply.ApplyState.$ApplyActive directly (inline, no cross-script -->
-    <!-- Agent: signal_cue). Drives off OUR flag, not SirNuke's persisted $value. -->
-    <cue name="SpikeOption_ToggleApply" instantiate="true">
-      <conditions>
-        <event_cue_signalled/>
-      </conditions>
-      <actions>
-        <do_if value="not @md.X4MP_Spike_Apply.ApplyState.$ApplyActive">
-          <!-- Apply ON: the 10Hz loop spawns the proxy (if needed) and ticks the Lua applier. -->
-          <set_value name="md.X4MP_Spike_Apply.ApplyState.$ApplyActive" exact="true"/>
-          <signal_cue_instantly
-            cue="md.Named_Pipes.Write"
-            param="table[
-              $pipe = 'x4mp_bridge',
-              $msg  = '{&quot;type&quot;:&quot;spike.apply.started&quot;}',
-              ]"/>
-          <set_value name="$ApplyButtonLabel" exact="'Stop apply'"/>
-        </do_if>
-        <do_else>
-          <set_value name="md.X4MP_Spike_Apply.ApplyState.$ApplyActive" exact="false"/>
-          <raise_lua_event name="'x4mp.spike.apply.stop'" param="''"/>
-          <signal_cue_instantly
-            cue="md.Named_Pipes.Write"
-            param="table[
-              $pipe = 'x4mp_bridge',
-              $msg  = '{&quot;type&quot;:&quot;spike.apply.stopped&quot;}',
-              ]"/>
-          <set_value name="$ApplyButtonLabel" exact="'Start apply'"/>
-        </do_else>
-        <signal_cue_instantly
-          cue="md.Simple_Menu_API.Update_Widget"
-          param="table[
-            $id   = 'x4mp_spike_apply',
-            $type = 'button',
-            $text = table[$text = $ApplyButtonLabel],
             ]"/>
       </actions>
     </cue>

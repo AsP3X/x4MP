@@ -154,8 +154,8 @@ x4-multiplayer-mod/
 | **M1** | Ship position sync (piloted ships), entity-ID map, in-game debug overlay |
 | **M2** | Client orders → host ack; offline buffer persistence; dev-chaos; `session.resume` replay |
 | **M3** | Save/load + hash verify, faction ACL, time lock + SETA vote, TLS & auth hardening |
-| **M4** | Trade, build, faction create/join/leave |
-| **M5** | Active-sector NPC snapshot sync; host migration |
+| **M4** | Trade, build, faction create/join/leave ([plan](docs/superpowers/plans/2025-06-21-m4-economy-replication.md)) |
+| **M5** | Active-sector NPC snapshot sync; host migration ([plan](docs/superpowers/plans/2025-06-21-m5-active-sector-npc-sync.md), gated on M0.75 Q3) |
 | **Phase B** | Galaxy-wide NPC/economy reconciliation (research, gated by the M0.75 spike) |
 | **Phase C** | Server-authoritative sim without X4 (long-term) |
 

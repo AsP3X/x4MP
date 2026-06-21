@@ -4,6 +4,9 @@ use uuid::Uuid;
 use x4mp_proto::{Authority, EventEnvelope, HandshakePayload, PROTO_VERSION};
 use x4mp_server::read_event_log;
 
+// Q3 spike divergence analysis (reads worldsnap samples from an event.log).
+pub mod divergence;
+
 // Human: CLI configuration for replaying a session event log.
 // Agent: READS --session, --from-seq, --server, --data-dir from clap/main.
 #[derive(Debug, Clone)]

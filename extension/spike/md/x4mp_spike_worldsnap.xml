@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Human: Q3 divergence spike — MD-only. Periodically samples AGGREGATE world state for the player's -->
+<!-- Human: current sector and writes it as NDJSON to the bridge pipe, so two instances running the same -->
+<!-- Human: save (no sync) can be compared offline to measure how fast shared world state drifts. -->
+<!-- Agent: EMITS spike.worldsnap via md.Named_Pipes.Write to pipe x4mp_bridge (bridge -> server event.log). -->
+<!-- Agent: WHY aggregates (counts), not per-entity: NPC component ids are NOT stable across two separate -->
+<!-- Agent: X4 instances, so individual ships can't be matched 1:1. Counts/sums ARE comparable and answer -->
+<!-- Agent: the Q3 authority-boundary question. Each instance gets a distinct server sender_id => two -->
+<!-- Agent: labeled streams in one event.log. THROWAWAY spike code (M0.75); no proto/ACL wiring. -->
+<mdscript name="X4MP_Spike_Worldsnap" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
+  <cues>
+    <!-- Human: Shared snapshot state survives menu clicks and the tick cue. -->
+    <!-- Agent: WRITES WorldSnap.$SnapActive / $SnapSeq; READ by Spike_WorldSnapTick. -->
+    <cue name="WorldSnap">
+      <actions>
+        <set_value name="this.$SnapActive" exact="false"/>
+        <set_value name="this.$SnapSeq" exact="0"/>
+      </actions>
+      <cues>
+        <!-- Human: Reset snapshot off on new game / save load. -->
+        <!-- Agent: CLEARS WorldSnap.$SnapActive and the snapshot counter. -->
+        <cue name="Spike_WorldSnapReset" instantiate="true">
+          <conditions>
+            <event_cue_signalled cue="md.Setup.Start"/>
+          </conditions>
+          <actions>
+            <set_value name="WorldSnap.$SnapActive" exact="false"/>
+            <set_value name="WorldSnap.$SnapSeq" exact="0"/>
+          </actions>
+        </cue>
+
+        <!-- Human: ~15 s snapshot tick — count ships/stations in the player's sector and emit one line. -->
+        <!-- Agent: READS player.sector; COUNTS via <find_ship>/<find_station> (multiple groups -> .count). -->
+        <!-- Agent: EMITS spike.worldsnap{seq,t,sector,ships,stations} to x4mp_bridge. -->
+        <!-- Agent: $t = player.age seconds (same save => same age at load) used to align the two streams. -->
+        <!-- Agent: /1s strips the time unit so the JSON value is a bare number. -->
+        <cue name="Spike_WorldSnapTick" instantiate="true" checkinterval="15s">
+          <conditions>
+            <check_value value="WorldSnap.$SnapActive" exact="true"/>
+          </conditions>
+          <actions>
+            <do_if value="player.sector.exists">
+              <set_value name="WorldSnap.$SnapSeq" operation="add"/>
+              <!-- All ships currently in the player's sector (NPC traffic is the main drift signal). -->
+              <find_ship groupname="$Ships" space="player.sector" multiple="true"/>
+              <!-- All stations in the sector (should be stable unless built/destroyed). -->
+              <find_station groupname="$Stations" space="player.sector" multiple="true"/>
+              <set_value name="$shipCount" exact="$Ships.count"/>
+              <set_value name="$stationCount" exact="$Stations.count"/>
+              <set_value name="$t" exact="player.age / 1s"/>
+              <set_value name="$msg" exact="'{&quot;type&quot;:&quot;spike.worldsnap&quot;,&quot;seq&quot;:'
+                + WorldSnap.$SnapSeq
+                + ',&quot;t&quot;:' + $t
+                + ',&quot;sector&quot;:&quot;' + player.sector.name + '&quot;'
+                + ',&quot;ships&quot;:' + $shipCount
+                + ',&quot;stations&quot;:' + $stationCount + '}'"/>
+              <signal_cue_instantly
+                cue="md.Named_Pipes.Write"
+                param="table[$pipe = 'x4mp_bridge', $msg = $msg]"/>
+              <debug_text text="'[X4MP spike] worldsnap seq=' + WorldSnap.$SnapSeq
+                + ' sector=' + player.sector.name
+                + ' ships=' + $shipCount + ' stations=' + $stationCount" chance="100"/>
+            </do_if>
+          </actions>
+        </cue>
+        <!-- Human: Start/Stop driven inline by the menu toggle (sets WorldSnap.$SnapActive). -->
+      </cues>
+    </cue>
+  </cues>
+</mdscript>

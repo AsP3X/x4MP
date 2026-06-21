@@ -33,14 +33,19 @@ impl EventLog {
 
     // Append one seq-stamped envelope as a single NDJSON line.
     // Note: serde_json::Error does not auto-convert into io::Error, so map it.
+    // Agent: Builds "line\n" then does ONE write_all. With O_APPEND/FILE_APPEND_DATA the OS
+    // Agent: appends each (small) write atomically at EOF, so concurrent writers (e.g. two
+    // Agent: clients in the Q3 two-instance run) never interleave a line with its newline.
+    // Agent: A `writeln!` here could emit the body and the "\n" as two appends and corrupt NDJSON.
     pub fn append(&self, env: &EventEnvelope) -> std::io::Result<()> {
-        let line = serde_json::to_string(env)
+        let mut line = serde_json::to_string(env)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        line.push('\n');
         let mut f = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
-        writeln!(f, "{line}")
+        f.write_all(line.as_bytes())
     }
 
     // Human: Read the last NDJSON line for test assertions.
