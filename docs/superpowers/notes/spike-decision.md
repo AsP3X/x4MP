@@ -1,14 +1,14 @@
 # M0.75 Spike — Go / No-Go Decision
 
-**Status:** PENDING — awaiting Q1–Q3 manual measurements in X4  
-**Last updated:** 2025-06-21 (scaffolding only)
+**Status:** PENDING — Q1/Q2 validated; awaiting Q3 divergence measurement  
+**Last updated:** 2026-06-21 (Q2 apply validated in-game)
 
 ## Summary
 
 | Question | Result | Link |
 |----------|--------|------|
-| Q1 Capture @ 5–10 Hz | _PENDING_ | [spike-q1-capture.md](./spike-q1-capture.md) |
-| Q2 Proxy apply + interpolation | _PENDING_ | [spike-q2-apply.md](./spike-q2-apply.md) |
+| Q1 Capture @ 5–10 Hz | PASS (qualitative) — 10 Hz MD capture → pipe → server confirmed; formal metrics note still TBD | [spike-q1-capture.md](./spike-q1-capture.md) |
+| Q2 Proxy apply + interpolation | **PASS (revised)** — `<warp>` only; MD-side lerp mandatory | [spike-q2-apply.md](./spike-q2-apply.md) |
 | Q3 NPC divergence boundary | _PENDING_ | [spike-q3-divergence.md](./spike-q3-divergence.md) |
 
 ## Decision
