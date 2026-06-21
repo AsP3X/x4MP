@@ -15,11 +15,21 @@ path = "src/main.rs"
 x4mp-proto = { path = "../proto" }
 futures-util = "0.3"
 tokio-tungstenite = "0.26"
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+] }
 
 [dev-dependencies]
 x4mp-server = { path = "../server" }

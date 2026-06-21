@@ -1,81 +1,130 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Human: MD cues for Q2 apply spike — spawn proxy + apply external positions. -->
-<!-- Agent: APPLIES x4mp.spike.apply.position to $SpikeProxyShip when samples arrive. -->
+<!-- Human: Q2 apply spike — MD-ONLY single-instance loopback. Spawns a proxy ship and replays the -->
+<!-- Human: player ship's delayed {position + rotation} path onto it via <warp> @10Hz. -->
+<!-- Agent: This is THROWAWAY spike code (M0.75). It does NOT use the server/bridge downstream path. -->
+<!-- Agent: KEY FINDINGS: (1) no separate transform setter exists — set_object_position (MD) and -->
+<!-- Agent: SetObjectSectorPos (FFI) are not real, and the engine is closed-source so we cannot add -->
+<!-- Agent: one; (2) <warp object= zone=><position/><rotation/></warp> IS the transform setter — it -->
+<!-- Agent: sets position AND rotation (base game uses the rotation child). It teleports (no engine -->
+<!-- Agent: interpolation) so motion steps at the warp rate. EMITS spike.apply_pos for metrics. -->
 <mdscript name="X4MP_Spike_Apply" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
-    <cue name="SpikeApply_Init" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.Setup.Start"/>
-      </conditions>
+    <!-- Human: Shared apply state (parent cue so child cues can read/write it). -->
+    <!-- Agent: WRITES ApplyState.$ApplyActive/$ProxyShip/$Buf/$Delay/$ApplySeq/$LastTarget/$SpawnDone. -->
+    <!-- Agent: Fresh cue names (ApplyState, Spike_ApplyLoop, ...) avoid the "Duplicate cue name" -->
+    <!-- Agent: collision that baked-in old saves cause when cue structure changes. -->
+    <cue name="ApplyState">
       <actions>
-        <set_value name="$SpikeApplyActive" exact="false"/>
-        <set_value name="$SpikeProxyShip" exact="null"/>
+        <set_value name="this.$ApplyActive" exact="false"/>
+        <set_value name="this.$ProxyShip" exact="null"/>
+        <set_value name="this.$ApplySeq" exact="0"/>
+        <set_value name="this.$SpawnDone" exact="false"/>
+        <set_value name="this.$EmitCtr" exact="0"/>
+        <!-- Ring buffer of {position, zone} samples for delayed path replay. -->
+        <create_list name="this.$PosBuf"/>
       </actions>
-    </cue>
+      <cues>
+        <!-- Human: Reset apply state on new game / save load (proxy ref is invalid after load). -->
+        <!-- Agent: CLEARS ApplyState fields so a stale proxy id is never reused. -->
+        <cue name="Spike_ApplyReset" instantiate="true">
+          <conditions>
+            <event_cue_signalled cue="md.Setup.Start"/>
+          </conditions>
+          <actions>
+            <set_value name="ApplyState.$ApplyActive" exact="false"/>
+            <set_value name="ApplyState.$ProxyShip" exact="null"/>
+            <set_value name="ApplyState.$ApplySeq" exact="0"/>
+            <set_value name="ApplyState.$SpawnDone" exact="false"/>
+            <set_value name="ApplyState.$EmitCtr" exact="0"/>
+            <create_list name="ApplyState.$PosBuf"/>
+          </actions>
+        </cue>
 
-    <!-- Human: Spawn a proxy ship near the player for apply testing. -->
-    <!-- Agent: CREATE_SHIP in player sector; STORES id in $SpikeProxyShip. -->
-    <cue name="SpikeApply_SpawnProxy" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.X4MP_Spike_Apply.SpikeApply_SpawnProxy"/>
-      </conditions>
-      <actions>
-        <find_ship name="$PlayerShip" space="player.entity" multiple="false"/>
-        <find_sector name="$Sector" space="$PlayerShip" required="true"/>
-        <create_ship name="$SpikeProxyShip" sector="$Sector" macro="ship_xs_xperimental_01_a_macro">
-          <owner exact="faction.player"/>
-          <position object="$PlayerShip" x="0" y="0" z="2km"/>
-        </create_ship>
-        <debug_text text="'[X4MP spike] proxy ship spawned'" chance="100"/>
-      </actions>
-    </cue>
+        <!-- Human: 10 Hz apply loop. Spawns the proxy once, then warps it to player+4km each tick. -->
+        <!-- Agent: WARPS ApplyState.$ProxyShip to (player ship zone, +4km X) via <warp> — the only -->
+        <!-- Agent: working reposition primitive. No Lua/FFI (those functions do not exist). -->
+        <!-- Agent: EMITS spike.apply_sample{seq} every tick (rate) and spike.apply_pos every ~1s -->
+        <!-- Agent: (proxy vs src coords) so the server proves the warp actually moves the proxy. -->
+        <cue name="Spike_ApplyLoop" instantiate="true" checkinterval="0.1s">
+          <conditions>
+            <check_value value="ApplyState.$ApplyActive" exact="true"/>
+          </conditions>
+          <actions>
+            <!-- Source ship = whatever the player is flying / owns (same selection as capture). -->
+            <set_value name="$src" exact="null"/>
+            <do_if value="player.occupiedship.exists">
+              <set_value name="$src" exact="player.occupiedship"/>
+            </do_if>
+            <do_elseif value="player.primaryship.exists">
+              <set_value name="$src" exact="player.primaryship"/>
+            </do_elseif>
 
-    <!-- Human: Start apply loop after proxy exists. -->
-    <!-- Agent: RAISES Lua apply.start with $SpikeProxyShip id. -->
-    <cue name="SpikeApply_Start" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.X4MP_Spike_Apply.SpikeApply_Start"/>
-      </conditions>
-      <actions>
-        <set_value name="$SpikeApplyActive" exact="true"/>
-        <raise_lua_event name="'x4mp.spike.apply.start'" param="$SpikeProxyShip + ',' + 'lerp'"/>
-        <debug_text text="'[X4MP spike] apply START'" chance="100"/>
-      </actions>
-    </cue>
+            <do_if value="$src != null">
+              <!-- Spawn the proxy once, in the source ship's sector, using the player ship's OWN -->
+              <!-- macro so the macro id is always valid. Only mark done on success; else retry. -->
+              <do_if value="not ApplyState.$SpawnDone">
+                <!-- Plain warp-controlled proxy: NO pilot / NO order (an order's flight engine would -->
+                <!-- fight our per-tick warp). We drive position AND rotation ourselves via <warp>. -->
+                <create_ship name="$NewProxy" sector="$src.sector" macro="$src.macro">
+                  <owner exact="faction.player"/>
+                  <position object="$src" x="4km" y="0m" z="0m"/>
+                </create_ship>
+                <do_if value="$NewProxy.exists">
+                  <set_value name="ApplyState.$ProxyShip" exact="$NewProxy"/>
+                  <set_value name="ApplyState.$SpawnDone" exact="true"/>
+                  <signal_cue_instantly
+                    cue="md.Named_Pipes.Write"
+                    param="table[
+                      $pipe = 'x4mp_bridge',
+                      $msg  = '{&quot;type&quot;:&quot;spike.apply.spawned&quot;}',
+                      ]"/>
+                  <debug_text text="'[X4MP spike] proxy spawned macro=' + $src.macro" chance="100"/>
+                </do_if>
+                <do_else>
+                  <debug_text text="'[X4MP spike] proxy spawn FAILED for macro=' + $src.macro" chance="100"/>
+                </do_else>
+              </do_if>
 
-    <cue name="SpikeApply_Stop" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.X4MP_Spike_Apply.SpikeApply_Stop"/>
-      </conditions>
-      <actions>
-        <set_value name="$SpikeApplyActive" exact="false"/>
-        <raise_lua_event name="'x4mp.spike.apply.stop'" param="''"/>
-      </actions>
-    </cue>
-
-    <!-- Human: 10 Hz apply tick — read pipe + interpolate. -->
-    <cue name="SpikeApply_Tick" instantiate="true" checkinterval="0.1s">
-      <conditions>
-        <check_value value="$SpikeApplyActive" exact="true"/>
-      </conditions>
-      <actions>
-        <raise_lua_event name="'x4mp.spike.apply.tick'" param="''"/>
-      </actions>
-    </cue>
-
-    <!-- Human: Move proxy ship to sample coordinates (snap or lerp step). -->
-    <!-- Agent: APPLIES set_object_position on $SpikeProxyShip — API under validation. -->
-    <cue name="SpikeApply_SetPosition" instantiate="true">
-      <conditions>
-        <event_lua_signal name="'x4mp.spike.apply.position'"/>
-      </conditions>
-      <actions>
-        <set_value name="$TargetShip" exact="event.param.{1}"/>
-        <set_value name="$X" exact="event.param.{2}"/>
-        <set_value name="$Y" exact="event.param.{3}"/>
-        <set_value name="$Z" exact="event.param.{4}"/>
-        <set_object_position object="$TargetShip" x="$X" y="$Y" z="$Z"/>
-      </actions>
+              <do_elseif value="ApplyState.$ProxyShip.exists">
+                <!-- Record the player ship's current {position, zone, ROTATION} into a ring buffer. -->
+                <append_to_list name="ApplyState.$PosBuf" exact="table[$p = $src.position, $z = $src.zone, $r = $src.rotation]"/>
+                <!-- After ~2s of history, warp the proxy to the sample from 20 ticks ago, replaying the -->
+                <!-- delayed path. We index (count - 20) instead of removing (no fragile list mutation). -->
+                <do_if value="ApplyState.$PosBuf.count gt 20">
+                  <set_value name="$idx" exact="ApplyState.$PosBuf.count - 20"/>
+                  <set_value name="$sample" exact="ApplyState.$PosBuf.{$idx}"/>
+                  <!-- warp sets BOTH position and rotation (the <rotation> child fixes orientation). -->
+                  <warp object="ApplyState.$ProxyShip" zone="$sample.$z">
+                    <position value="$sample.$p"/>
+                    <rotation value="$sample.$r"/>
+                  </warp>
+                  <set_value name="ApplyState.$ApplySeq" operation="add"/>
+                  <signal_cue_instantly
+                    cue="md.Named_Pipes.Write"
+                    param="table[
+                      $pipe = 'x4mp_bridge',
+                      $msg  = '{&quot;type&quot;:&quot;spike.apply_sample&quot;,&quot;seq&quot;:' + ApplyState.$ApplySeq + '}',
+                      ]"/>
+                  <set_value name="ApplyState.$EmitCtr" operation="add"/>
+                  <do_if value="ApplyState.$EmitCtr ge 10">
+                    <set_value name="ApplyState.$EmitCtr" exact="0"/>
+                    <signal_cue_instantly
+                      cue="md.Named_Pipes.Write"
+                      param="table[
+                        $pipe = 'x4mp_bridge',
+                        $msg  = '{&quot;type&quot;:&quot;spike.apply_pos&quot;,&quot;seq&quot;:' + ApplyState.$ApplySeq
+                          + ',&quot;proxy_x&quot;:' + (ApplyState.$ProxyShip.position.x / 1m)
+                          + ',&quot;proxy_z&quot;:' + (ApplyState.$ProxyShip.position.z / 1m)
+                          + ',&quot;src_x&quot;:' + ($src.position.x / 1m)
+                          + ',&quot;src_z&quot;:' + ($src.position.z / 1m) + '}',
+                        ]"/>
+                  </do_if>
+                </do_if>
+              </do_elseif>
+            </do_if>
+          </actions>
+        </cue>
+      </cues>
     </cue>
   </cues>
 </mdscript>

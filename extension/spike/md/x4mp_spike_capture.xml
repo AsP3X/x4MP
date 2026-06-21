@@ -1,53 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Human: MD cues for Q1 capture spike — periodic tick + menu start/stop. -->
-<!-- Agent: SIGNALS x4mp.spike.capture.tick every 0.1s when capture active. -->
+<!-- Human: Q1 capture spike — MD-only. Reads player ship state and writes NDJSON to the bridge pipe. -->
+<!-- Agent: EMITS spike.* via md.Named_Pipes.Write to pipe x4mp_bridge; no Lua (Lua handoff proved unreliable). -->
 <mdscript name="X4MP_Spike_Capture" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
-    <!-- Human: Init on new game and save load. -->
-    <!-- Agent: waits md.Setup.Start; RAISES capture ready state. -->
-    <cue name="SpikeCapture_Init" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.Setup.Start"/>
-      </conditions>
+    <!-- Human: Shared capture state survives across menu clicks and the tick cue. -->
+    <!-- Agent: WRITES Globals.$CaptureActive / $SampleSeq; READ by Spike_Sampler. -->
+    <cue name="Globals">
       <actions>
-        <set_value name="$SpikeCaptureActive" exact="false"/>
-        <raise_lua_event name="'x4mp.spike.capture.stop'" param="''"/>
+        <set_value name="this.$CaptureActive" exact="false"/>
+        <set_value name="this.$SampleSeq" exact="0"/>
+        <set_value name="this.$HeartbeatCount" exact="0"/>
       </actions>
-    </cue>
+      <cues>
+        <!-- Human: DIAGNOSTIC heartbeat — proves MD->pipe->server without menu/ship. -->
+        <!-- Agent: EMITS spike.hello every 3s, up to 20 beats; safe to leave on (auto-stops). -->
+        <cue name="Spike_Heartbeat" instantiate="true" checkinterval="3s">
+          <conditions>
+            <check_value value="Globals.$HeartbeatCount" max="19"/>
+          </conditions>
+          <actions>
+            <set_value name="Globals.$HeartbeatCount" operation="add"/>
+            <signal_cue_instantly
+              cue="md.Named_Pipes.Write"
+              param="table[
+                $pipe = 'x4mp_bridge',
+                $msg  = '{&quot;type&quot;:&quot;spike.hello&quot;,&quot;src&quot;:&quot;md_heartbeat&quot;}',
+                ]"/>
+          </actions>
+        </cue>
 
-    <!-- Human: 10 Hz tick while capture is active. -->
-    <!-- Agent: EMITS x4mp.spike.capture.tick to Lua frame handler. -->
-    <cue name="SpikeCapture_Tick" instantiate="true" checkinterval="0.1s">
-      <conditions>
-        <check_value value="$SpikeCaptureActive" exact="true"/>
-      </conditions>
-      <actions>
-        <raise_lua_event name="'x4mp.spike.capture.tick'" param="''"/>
-      </actions>
-    </cue>
+        <!-- Human: Reset capture off on new game / save load. -->
+        <!-- Agent: CLEARS Globals.$CaptureActive and sample counter. -->
+        <cue name="Reset_On_Setup" instantiate="true">
+          <conditions>
+            <event_cue_signalled cue="md.Setup.Start"/>
+          </conditions>
+          <actions>
+            <set_value name="Globals.$CaptureActive" exact="false"/>
+            <set_value name="Globals.$SampleSeq" exact="0"/>
+          </actions>
+        </cue>
 
-    <!-- Human: Dev menu hook — start capture (bind to hotkey in manual smoke). -->
-    <!-- Agent: SETS $SpikeCaptureActive; STARTS Lua capture loop. -->
-    <cue name="SpikeCapture_Start" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.X4MP_Spike_Capture.SpikeCapture_Start"/>
-      </conditions>
-      <actions>
-        <set_value name="$SpikeCaptureActive" exact="true"/>
-        <raise_lua_event name="'x4mp.spike.capture.start'" param="''"/>
-        <debug_text text="'[X4MP spike] capture START'" chance="100"/>
-      </actions>
-    </cue>
+        <!-- Human: 10 Hz capture tick — build a ship sample in MD and write it to the pipe. -->
+        <!-- Agent: READS player.occupiedship/primaryship position; EMITS spike.ship_sample to x4mp_bridge. -->
+        <!-- Agent: position/time use /1m and /1s to yield unitless numbers (valid JSON). -->
+        <!-- Agent: Renamed from SpikeCapture_Tick — old name is baked into existing saves and -->
+        <!-- Agent: collided on load ("Duplicate cue name"); a fresh name registers cleanly. -->
+        <cue name="Spike_Sampler" instantiate="true" checkinterval="0.1s">
+          <conditions>
+            <check_value value="Globals.$CaptureActive" exact="true"/>
+          </conditions>
+          <actions>
+            <!-- Pick the ship the player is currently flying, else the owned flagship, -->
+            <!-- else the entity the player is attached to (walking/seat cases). -->
+            <set_value name="$ship" exact="null"/>
+            <do_if value="player.occupiedship.exists">
+              <set_value name="$ship" exact="player.occupiedship"/>
+            </do_if>
+            <do_elseif value="player.primaryship.exists">
+              <set_value name="$ship" exact="player.primaryship"/>
+            </do_elseif>
+            <do_elseif value="player.entity.exists and player.entity.isclass.ship">
+              <set_value name="$ship" exact="player.entity"/>
+            </do_elseif>
 
-    <cue name="SpikeCapture_Stop" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.X4MP_Spike_Capture.SpikeCapture_Stop"/>
-      </conditions>
-      <actions>
-        <set_value name="$SpikeCaptureActive" exact="false"/>
-        <raise_lua_event name="'x4mp.spike.capture.stop'" param="''"/>
-        <debug_text text="'[X4MP spike] capture STOP'" chance="100"/>
-      </actions>
+            <!-- DIAGNOSTIC: one line per tick while capturing so debuglog reveals what we see. -->
+            <debug_text text="'[X4MP spike] tick active=' + Globals.$CaptureActive
+              + ' occ=' + player.occupiedship.exists
+              + ' prim=' + player.primaryship.exists
+              + ' ship=' + (if $ship != null then $ship.name else 'NULL')" chance="100"/>
+
+            <do_if value="$ship != null">
+              <set_value name="Globals.$SampleSeq" operation="add"/>
+              <set_value name="$px" exact="$ship.position.x / 1m"/>
+              <set_value name="$py" exact="$ship.position.y / 1m"/>
+              <set_value name="$pz" exact="$ship.position.z / 1m"/>
+              <set_value name="$tms" exact="(player.age / 1s) * 1000"/>
+              <set_value name="$msg" exact="'{&quot;type&quot;:&quot;spike.ship_sample&quot;,&quot;seq&quot;:'
+                + Globals.$SampleSeq
+                + ',&quot;t_ms&quot;:' + $tms
+                + ',&quot;position&quot;:{&quot;x&quot;:' + $px
+                + ',&quot;y&quot;:' + $py
+                + ',&quot;z&quot;:' + $pz + '}}'"/>
+              <signal_cue_instantly
+                cue="md.Named_Pipes.Write"
+                param="table[$pipe = 'x4mp_bridge', $msg = $msg]"/>
+            </do_if>
+          </actions>
+        </cue>
+        <!-- Human: Start/Stop are driven inline by the menu toggle (sets Globals.$CaptureActive -->
+        <!-- and emits spike.capture.started/stopped), so no separate Start/Stop cues here. -->
+        <!-- Agent: Old SpikeCapture_Start/Stop removed — they were baked into saves and collided. -->
+      </cues>
     </cue>
   </cues>
 </mdscript>

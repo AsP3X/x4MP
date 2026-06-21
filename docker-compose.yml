@@ -1,0 +1,28 @@
+# Human: Local dev stack — x4mp-server in Docker; bridge + SirNuke pipe server run on Windows host.
+# Agent: WRITES session data to x4mp-data volume; exposes WS on host port 7878.
+services:
+  x4mp-server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: x4mp-server:dev
+    container_name: x4mp-server
+    ports:
+      - "${X4MP_HOST_PORT:-7878}:7878"
+    environment:
+      X4MP_BIND_ADDR: 0.0.0.0:7878
+      X4MP_DATA_DIR: /data
+      RUST_LOG: ${RUST_LOG:-x4mp_server=info}
+    volumes:
+      - x4mp-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7878/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  x4mp-data:
+    name: x4mp-data

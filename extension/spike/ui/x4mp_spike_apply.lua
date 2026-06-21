@@ -1,126 +1,122 @@
--- Human: Q2 apply — drive a proxy ship from inbound spike samples (snap + lerp modes).
--- Agent: READS pipe NDJSON; APPLIES position/rotation to $SpikeProxyShip via MD cues.
-local pipe = require("extensions.x4mp_spike.ui.x4mp_spike_pipe")
+-- Human: Q2 apply (M0.75 spike) — drive a proxy ship's position via the real X4 FFI.
+-- Human: MD spawns the proxy and ticks us; we read the player ship's sector position,
+-- Human: delay it ~1s through a ring buffer, and write it (offset +4km) onto the proxy.
+-- Agent: USES C.GetObjectPositionInSector / C.SetObjectSectorPos (the MD action
+-- Agent: 'set_object_position' does NOT exist — that was the Q2 blocker). One-directional
+-- Agent: MD->Lua only (RegisterEvent). DIAGNOSTICS go out the SirNuke pipe to the server log
+-- Agent: because debuglog.txt does NOT capture our DebugError in this launch config.
+-- Agent: LISTENS x4mp.spike.apply.bind (proxy component) and x4mp.spike.apply.tick (10Hz).
 
-local MODE_SNAP = "snap"
-local MODE_LERP = "lerp"
-local mode = MODE_LERP
-local running = false
-local proxy_ship = nil
-local last_sample = nil
-local next_sample = nil
-local lerp_t = 0
-local lerp_duration_s = 0.1
-local samples_applied = 0
+local ffi = require("ffi")
+local C = ffi.C
 
-local function parse_sample(line)
-  if not (json and json.decode) then
-    return nil
-  end
-  local ok, sample = pcall(json.decode, line)
-  if ok then
-    return sample
-  end
-  return nil
-end
+-- Agent: proxy_id/sector_id are UniverseIDs; buf is the delay ring of sector positions.
+local proxy_id = nil
+local sector_id = nil
+local buf = {}
+local DELAY_TICKS = 10      -- ~1s at the MD 10Hz tick
+local OFFSET_X = 4000.0     -- meters in sector frame, so the proxy is visibly separate
+local tick_count = 0
+local applied = 0
 
--- Human: Apply sample directly to proxy (snap mode).
--- Agent: RAISES MD event with target position for create_ship proxy.
-local function apply_snap(sample)
-  if not sample or not sample.position then
-    return
-  end
-  samples_applied = samples_applied + 1
-  RaiseNPCEvent("x4mp.spike.apply.position", {
-    ship = proxy_ship,
-    x = sample.position.x,
-    y = sample.position.y,
-    z = sample.position.z,
-    yaw = sample.rotation and sample.rotation.yaw or 0,
-    mode = MODE_SNAP,
-  })
-end
+-- Agent: Emit diagnostics through the SHARED pipe helper (x4mp_spike_pipe.lua), which calls
+-- Agent: Connect_Pipe before writing — my previous version skipped Connect_Pipe so every
+-- Agent: Schedule_Write silently dropped. Helper is loaded before us by ui.xml (_G global).
+-- Agent: We lazy-connect once (after sn_mod_support_apis is ready) on the first diag.
+local pipe_inited = false
 
--- Human: Interpolate between last and next sample (smooth mode).
--- Agent: APPLIES lerp position each tick until next sample arrives.
-local function apply_lerp_step(dt)
-  if not last_sample or not next_sample then
-    return
-  end
-  lerp_t = lerp_t + dt
-  local alpha = math.min(1, lerp_t / lerp_duration_s)
-  local a = last_sample.position
-  local b = next_sample.position
-  if not a or not b then
-    return
-  end
-  local x = a.x + (b.x - a.x) * alpha
-  local y = a.y + (b.y - a.y) * alpha
-  local z = a.z + (b.z - a.z) * alpha
-  RaiseNPCEvent("x4mp.spike.apply.position", {
-    ship = proxy_ship,
-    x = x,
-    y = y,
-    z = z,
-    yaw = next_sample.rotation and next_sample.rotation.yaw or 0,
-    mode = MODE_LERP,
-  })
-  if alpha >= 1 then
-    last_sample = next_sample
-    next_sample = nil
-    lerp_t = 0
-  end
-end
-
-local function ingest_sample(sample)
-  if mode == MODE_SNAP then
-    apply_snap(sample)
-    return
-  end
-  if not last_sample then
-    last_sample = sample
-    apply_snap(sample)
-    return
-  end
-  next_sample = sample
-  lerp_t = 0
-end
-
--- Human: Poll pipe for one sample line per tick.
--- Agent: READS x4mp_spike_pipe.read_line; APPLIES via snap or lerp.
-function OnSpikeApplyTick()
-  if not running then
-    return
-  end
-  local line = pipe.read_line()
-  if line then
-    local sample = parse_sample(line)
-    if sample and sample.type == "spike.ship_sample" then
-      ingest_sample(sample)
+-- Human: Send one diagnostic line to the server via the bridge pipe (and DebugError as backup).
+-- Agent: EMITS spike.apply.diag {msg=...}; pcall-guarded so it can never break the apply loop.
+local function diag(msg)
+  DebugError("[X4MP spike] " .. msg)
+  local helper = _G.x4mp_spike_pipe
+  if helper then
+    if not pipe_inited then
+      pcall(helper.init_pipe)
+      pipe_inited = true
     end
-  elseif mode == MODE_LERP then
-    apply_lerp_step(0.1)
+    local line = '{"type":"spike.apply.diag","msg":"' .. tostring(msg):gsub('"', "'") .. '"}'
+    pcall(helper.write_line, line)
   end
 end
 
-function StartSpikeApply(ship_id, apply_mode)
-  pipe.init_pipe()
-  proxy_ship = ship_id
-  mode = apply_mode or MODE_LERP
-  running = true
-  samples_applied = 0
-  last_sample = nil
-  next_sample = nil
-  DebugInfo("[X4MP spike] apply started mode=" .. tostring(mode))
+-- Human: Bind to the proxy spawned by MD. Param is the MD component reference (as a string).
+-- Agent: CONVERTS component->UniverseID via ConvertStringTo64Bit; RESOLVES its sector. All FFI
+-- Agent: in pcall so a missing declaration is reported to the server log, not swallowed.
+function OnSpikeApplyBind(_, param)
+  buf = {}
+  applied = 0
+  tick_count = 0
+  proxy_id = nil
+  sector_id = nil
+
+  local ok, err = pcall(function()
+    proxy_id = ConvertStringTo64Bit(tostring(param))
+    if proxy_id and proxy_id ~= 0 then
+      sector_id = C.GetContextByClass(proxy_id, "sector", false)
+    end
+  end)
+  if ok then
+    diag("bind ok proxy=" .. tostring(proxy_id) .. " sector=" .. tostring(sector_id) .. " param=" .. tostring(param))
+  else
+    diag("bind FFI ERROR: " .. tostring(err) .. " param=" .. tostring(param))
+  end
 end
 
-function StopSpikeApply()
-  running = false
-  DebugInfo("[X4MP spike] apply stopped after " .. tostring(samples_applied) .. " samples")
+-- Human: Per-tick: sample the player ship, replay the delayed sample onto the proxy.
+-- Agent: READS C.GetObjectPositionInSector(player); APPLIES C.SetObjectSectorPos(proxy).
+function OnSpikeApplyTick()
+  if not proxy_id or proxy_id == 0 or not sector_id or sector_id == 0 then
+    -- First few bad ticks are expected before bind; report once.
+    if tick_count == 0 then
+      diag("tick skipped: no proxy/sector bound yet (proxy=" .. tostring(proxy_id) .. " sector=" .. tostring(sector_id) .. ")")
+      tick_count = 1
+    end
+    return
+  end
+
+  local ok, err = pcall(function()
+    -- Source ship the player is currently flying (fallback to the player object).
+    local src = C.GetPlayerOccupiedShipID()
+    if src == nil or src == 0 then
+      src = C.GetPlayerObjectID()
+    end
+    if src == nil or src == 0 then
+      return
+    end
+
+    local p = C.GetObjectPositionInSector(src)
+    buf[#buf + 1] = { x = p.x, y = p.y, z = p.z, yaw = p.yaw, pitch = p.pitch, roll = p.roll }
+
+    if #buf > DELAY_TICKS then
+      local t = table.remove(buf, 1)
+      -- Agent: ffi.new builds a UIPosRot by value for the C call (offset +X so it sits beside us).
+      local pr = ffi.new("UIPosRot", { x = t.x + OFFSET_X, y = t.y, z = t.z, yaw = t.yaw, pitch = t.pitch, roll = t.roll })
+      C.SetObjectSectorPos(proxy_id, sector_id, pr)
+      applied = applied + 1
+
+      -- Read back every ~1s to PROVE the set took effect (read-back should match what we wrote).
+      tick_count = tick_count + 1
+      if (applied % 10) == 1 then
+        local rb = C.GetObjectPositionInSector(proxy_id)
+        diag(string.format("apply #%d set x=%.1f z=%.1f -> readback x=%.1f z=%.1f",
+          applied, t.x + OFFSET_X, t.z, rb.x, rb.z))
+      end
+    end
+  end)
+  if not ok then
+    diag("tick FFI ERROR: " .. tostring(err))
+  end
 end
 
-RegisterEvent("x4mp.spike.apply.start", StartSpikeApply)
-RegisterEvent("x4mp.spike.apply.stop", StopSpikeApply)
+-- Human: Stop = clear local state (MD stops ticking when its flag is off).
+function OnSpikeApplyStop()
+  diag("apply stop after " .. tostring(applied) .. " applies")
+  buf = {}
+end
+
+RegisterEvent("x4mp.spike.apply.bind", OnSpikeApplyBind)
 RegisterEvent("x4mp.spike.apply.tick", OnSpikeApplyTick)
+RegisterEvent("x4mp.spike.apply.stop", OnSpikeApplyStop)
 
-DebugInfo("[X4MP spike] apply module loaded")
+diag("apply Lua loaded (FFI SetObjectSectorPos, pipe diagnostics)")

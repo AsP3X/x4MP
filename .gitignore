@@ -1,6 +1,9 @@
 /target/
+**/target/
 /data/
 .env
+tools/dev-stack/.cache/
+tools/dev-stack/.env
 *.x4s
 .DS_Store
 Thumbs.db

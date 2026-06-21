@@ -26,10 +26,17 @@ pub fn data_root() -> std::path::PathBuf {
         .unwrap_or_else(|_| std::path::PathBuf::from("data"))
 }
 
+// Human: Liveness probe for Docker Compose / orchestrator health checks.
+// Agent: RETURNS 200 plain text; no session state required.
+async fn health() -> &'static str {
+    "ok"
+}
+
 // Human: Build the axum router wired to shared session state.
 // Agent: CALLS ws_handler on /ws upgrade; READS AppState for seq + event log.
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route("/health", get(health))
         .route("/ws", get(ws_upgrade))
         .with_state(state)
 }
@@ -125,10 +132,11 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
             tracing::error!(error = %e, "failed to append event log");
         }
 
-        tracing::debug!(
+        tracing::info!(
             event_type = %stamped.event_type,
             seq = stamped.seq,
-            "echoing envelope"
+            sender_id = %stamped.sender_id,
+            "event received"
         );
 
         if send_json(&mut socket, &stamped).await.is_err() {

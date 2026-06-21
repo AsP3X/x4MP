@@ -1,5 +1,7 @@
 pub mod offline_buffer;
 pub mod pipe;
+#[cfg(windows)]
+pub mod named_pipe_win;
 pub mod ws_client;
 
 pub use offline_buffer::{InMemoryOfflineBuffer, OfflineBuffer};

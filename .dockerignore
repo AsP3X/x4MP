@@ -1,0 +1,12 @@
+target/
+data/
+.git/
+.github/
+.cursor/
+docs/
+extension/
+tools/spike-feeder/target/
+**/*.x4s
+.env
+Thumbs.db
+.DS_Store

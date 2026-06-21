@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Human: Registers spike Lua modules (X4 7.5+ ui.xml path). -->
+<!-- Human: Registers spike Lua for X4 9.00 (menus env loads during gameplay UI). -->
+<!-- Agent: CALLS sn_mod_support_apis before pipe/capture modules; WRITES NDJSON via Named Pipes API. -->
 <addon name="x4mp_spike" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../ui/core/addons.xsd">
-  <environment name="custom_gamestart_x4mp_spike">
-    <file name="ui/x4mp_spike_pipe.lua" />
-    <file name="ui/x4mp_spike_capture.lua" />
-    <file name="ui/x4mp_spike_apply.lua" />
+  <environment type="menus">
+    <file name="x4mp_spike_pipe.lua" />
+    <file name="x4mp_spike_capture.lua" />
+    <file name="x4mp_spike_apply.lua" />
+    <dependency name="sn_mod_support_apis" />
   </environment>
 </addon>

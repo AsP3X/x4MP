@@ -1,0 +1,5 @@
+{
+  "instructions": "Set which extensions are allowed to load modules, based on extension id (in content.xml).",
+  "ws_2042901274": true,
+  "x4mp_spike": true
+}

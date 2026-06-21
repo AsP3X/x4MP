@@ -6,7 +6,9 @@
 
 - Two X4 installs (or two accounts) with **SirNuke Mod Support APIs**
 - **Protected UI Mode disabled** (Extensions menu)
-- M0 bridge running (`cargo run -p x4mp-bridge`) on each instance (stdin NDJSON until Named Pipe lands in M1)
+- Dev stack running — see [`docker/README.md`](../../docker/README.md) and [`tools/dev-stack/start-host.ps1`](../../tools/dev-stack/start-host.ps1)
+- SirNuke pipe server from [x4-projects releases](https://github.com/bvbohnen/x4-projects/releases) (auto-downloaded by `setup-pipe-server.ps1`)
+- M0 bridge on Windows host (`cargo run -p x4mp-bridge`; stdin NDJSON until Named Pipe lands in M1)
 
 ## Install
 
@@ -14,8 +16,8 @@ Copy or symlink `extension/spike/` into each X4 extensions folder as a separate 
 
 ## Q1 — Capture (instance 1)
 
-1. Start bridge: `cargo run -p x4mp-server` then `cargo run -p x4mp-bridge > capture.ndjson`
-2. Load game with spike mod; signal `SpikeCapture_Start` (MD cue — bind via debug menu or `md.X4MP_Spike_Capture.SpikeCapture_Start`)
+1. Start stack: `.\tools\dev-stack\start-host.ps1` (Docker server + pipe server + bridge)
+2. Load game with spike mod; open **Main Menu → Extension Options** (scroll to **X4MP Spike**), click the toggle until the button reads **Stop capture** (or signal `md.X4MP_Spike_Capture.Globals.SpikeCapture_Start` from MD debug if enabled)
 3. Fly for **2 minutes**; stop capture
 4. Record sample rate / jitter in `docs/superpowers/notes/spike-q1-capture.md`
 

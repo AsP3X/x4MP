@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Human: EXPERIMENTAL M0.75 spike mod — not shipped in production X4MP. -->
 <!-- Agent: Q1 capture + Q2 apply feasibility; separate from extension/ M1 skeleton. -->
-<content id="x4mp_spike" name="X4MP Feasibility Spike" author="X4MP Contributors" version="0.0.1-spike" date="2025-06-21" save="0" enabled="1">
-  <text language="44" name="X4MP Feasibility Spike" description="Throwaway M0.75 capture/apply spike. Requires SirNuke Mod Support APIs. Disable Protected UI Mode." />
-  <dependency id="ws_2042901277" version="100" optional="false" name="SirNuke Mod Support APIs" />
+<content id="x4mp_spike" name="X4MP Feasibility Spike" author="X4MP Contributors" version="1" date="2025-06-21" save="false">
+  <text language="44" name="X4MP Feasibility Spike" description="Throwaway M0.75 capture/apply spike. Requires SirNukes Mod Support APIs. Disable Protected UI Mode." />
+  <!-- Human: optional=true matches GS/other mods — X4 9.00 false-negative on required ws_2042901274 when APIs are manual-installed. -->
+  <!-- Agent: READS ws_2042901274 at runtime via Named Pipes; description warns if SirNuke disabled. -->
+  <dependency id="ws_2042901274" optional="true" name="SirNukes Mod Support APIs" />
 </content>
