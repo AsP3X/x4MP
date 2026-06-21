@@ -4,7 +4,13 @@
 <mdscript name="X4MP_Spike_Menu" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
     <!-- Human: Register when SirNuke options API reloads (not Setup.Start — API not ready yet). -->
-    <!-- Agent: WRITES X4MP Spike category row on Main Menu -> Extension Options. -->
+    <!-- Agent: Registers two buttons DIRECTLY into Extension Options (no $category). -->
+    <!-- Agent: WHY no $category: $category makes the API auto-create a submenu whose id is derived -->
+    <!-- Agent: from this script name ('x4mp_spike_menu'). That submenu registration is NOT -->
+    <!-- Agent: re-registration-safe, so the 2nd Register_Option / a menu reload throws -->
+    <!-- Agent: "Submenu id conflicts with prior registered id" and the API DROPS all our rows -->
+    <!-- Agent: (=> buttons vanish). The documented reload-safe pattern registers without a category, -->
+    <!-- Agent: so we group via the $name prefix instead. -->
     <cue name="Spike_Register_Option" instantiate="true">
       <conditions>
         <event_cue_signalled cue="md.Simple_Menu_Options.Reloaded"/>
@@ -13,9 +19,8 @@
         <signal_cue_instantly
           cue="md.Simple_Menu_Options.Register_Option"
           param="table[
-            $category  = 'X4MP Spike',
             $id        = 'x4mp_spike_capture',
-            $name      = 'Ship position capture',
+            $name      = 'X4MP Spike: Ship position capture',
             $mouseover = 'Toggle Q1 sampling (~10 Hz). Run tools/dev-stack/start-host.ps1 first.',
             $default   = 0,
             $type      = 'button',
@@ -26,10 +31,9 @@
         <signal_cue_instantly
           cue="md.Simple_Menu_Options.Register_Option"
           param="table[
-            $category  = 'X4MP Spike',
             $id        = 'x4mp_spike_apply',
-            $name      = 'Proxy apply loopback',
-            $mouseover = 'Q2: spawn a proxy ship 4km away and snap it to your ~1s-delayed path @10Hz.',
+            $name      = 'X4MP Spike: Proxy apply loopback',
+            $mouseover = 'Q2: spawn a proxy 4km away; replay your ~2s-delayed path, interpolated @~40Hz.',
             $default   = 0,
             $type      = 'button',
             $callback  = SpikeOption_ToggleApply,

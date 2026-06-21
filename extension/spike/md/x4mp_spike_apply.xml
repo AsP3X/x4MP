@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Human: Q2 apply spike — MD-ONLY single-instance loopback. Spawns a proxy ship and replays the -->
-<!-- Human: player ship's delayed {position + rotation} path onto it via <warp> @10Hz. -->
+<!-- Human: player ship's delayed path onto it. RECORD @10Hz, PLAYBACK @~40Hz with linear position -->
+<!-- Human: interpolation between samples (smaller visible steps) + snapped rotation (orientation). -->
 <!-- Agent: This is THROWAWAY spike code (M0.75). It does NOT use the server/bridge downstream path. -->
 <!-- Agent: KEY FINDINGS: (1) no separate transform setter exists — set_object_position (MD) and -->
 <!-- Agent: SetObjectSectorPos (FFI) are not real, and the engine is closed-source so we cannot add -->
 <!-- Agent: one; (2) <warp object= zone=><position/><rotation/></warp> IS the transform setter — it -->
-<!-- Agent: sets position AND rotation (base game uses the rotation child). It teleports (no engine -->
-<!-- Agent: interpolation) so motion steps at the warp rate. EMITS spike.apply_pos for metrics. -->
+<!-- Agent: sets position AND rotation. It teleports (no engine tween), so we shrink the steps by -->
+<!-- Agent: warping faster (~40Hz) at interpolated points between the 10Hz recorded samples. -->
+<!-- Agent: EMITS spike.apply_pos for metrics (~1Hz). -->
 <mdscript name="X4MP_Spike_Apply" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
     <!-- Human: Shared apply state (parent cue so child cues can read/write it). -->
-    <!-- Agent: WRITES ApplyState.$ApplyActive/$ProxyShip/$Buf/$Delay/$ApplySeq/$LastTarget/$SpawnDone. -->
-    <!-- Agent: Fresh cue names (ApplyState, Spike_ApplyLoop, ...) avoid the "Duplicate cue name" -->
-    <!-- Agent: collision that baked-in old saves cause when cue structure changes. -->
+    <!-- Agent: WRITES ApplyState.$ApplyActive/$ProxyShip/$PosBuf/$Base/$Frac/$PlayReady/$ApplySeq/$SpawnDone. -->
+    <!-- Agent: $Delay/$Step are tuning constants; $Base+$Frac is the fractional playback cursor (sample units). -->
     <cue name="ApplyState">
       <actions>
         <set_value name="this.$ApplyActive" exact="false"/>
@@ -20,12 +21,20 @@
         <set_value name="this.$ApplySeq" exact="0"/>
         <set_value name="this.$SpawnDone" exact="false"/>
         <set_value name="this.$EmitCtr" exact="0"/>
-        <!-- Ring buffer of {position, zone} samples for delayed path replay. -->
+        <!-- Ring buffer of {position, zone, rotation} samples recorded at 10Hz for delayed replay. -->
         <create_list name="this.$PosBuf"/>
+        <!-- Playback cursor: integer $Base (1-based list index) + fractional $Frac in [0,1). -->
+        <set_value name="this.$Base" exact="0"/>
+        <set_value name="this.$Frac" exact="0.0"/>
+        <set_value name="this.$PlayReady" exact="false"/>
+        <!-- Tuning: $Delay = recorded samples to stay behind (~2s at 10Hz). -->
+        <!-- $Step = sample-units advanced per playback tick (0.1s record / 0.025s playback = 0.25). -->
+        <set_value name="this.$Delay" exact="20"/>
+        <set_value name="this.$Step" exact="0.25"/>
       </actions>
       <cues>
         <!-- Human: Reset apply state on new game / save load (proxy ref is invalid after load). -->
-        <!-- Agent: CLEARS ApplyState fields so a stale proxy id is never reused. -->
+        <!-- Agent: CLEARS ApplyState fields so a stale proxy id / cursor is never reused. -->
         <cue name="Spike_ApplyReset" instantiate="true">
           <conditions>
             <event_cue_signalled cue="md.Setup.Start"/>
@@ -37,14 +46,18 @@
             <set_value name="ApplyState.$SpawnDone" exact="false"/>
             <set_value name="ApplyState.$EmitCtr" exact="0"/>
             <create_list name="ApplyState.$PosBuf"/>
+            <set_value name="ApplyState.$Base" exact="0"/>
+            <set_value name="ApplyState.$Frac" exact="0.0"/>
+            <set_value name="ApplyState.$PlayReady" exact="false"/>
           </actions>
         </cue>
 
-        <!-- Human: 10 Hz apply loop. Spawns the proxy once, then warps it to player+4km each tick. -->
-        <!-- Agent: WARPS ApplyState.$ProxyShip to (player ship zone, +4km X) via <warp> — the only -->
-        <!-- Agent: working reposition primitive. No Lua/FFI (those functions do not exist). -->
-        <!-- Agent: EMITS spike.apply_sample{seq} every tick (rate) and spike.apply_pos every ~1s -->
-        <!-- Agent: (proxy vs src coords) so the server proves the warp actually moves the proxy. -->
+        <!-- Human: 10 Hz RECORDER. Spawns the proxy once, then appends the player ship's -->
+        <!-- Human: {position, zone, rotation} each tick. Fixed rate = stable path resolution. -->
+        <!-- Agent: WRITES ApplyState.$PosBuf (append-only; grows for the spike's lifetime — fine for -->
+        <!-- Agent: a short throwaway test). EMITS spike.apply.spawned once on proxy creation. -->
+        <!-- Agent: Does NOT warp — playback is owned by Spike_ApplyWarp so the warp rate can exceed -->
+        <!-- Agent: the record rate (that decoupling is what enables interpolation). -->
         <cue name="Spike_ApplyLoop" instantiate="true" checkinterval="0.1s">
           <conditions>
             <check_value value="ApplyState.$ApplyActive" exact="true"/>
@@ -86,41 +99,100 @@
               </do_if>
 
               <do_elseif value="ApplyState.$ProxyShip.exists">
-                <!-- Record the player ship's current {position, zone, ROTATION} into a ring buffer. -->
+                <!-- Record the player ship's current {position, zone, rotation} at a steady 10Hz. -->
+                <!-- Playback (Spike_ApplyWarp) interpolates between consecutive entries. -->
                 <append_to_list name="ApplyState.$PosBuf" exact="table[$p = $src.position, $z = $src.zone, $r = $src.rotation]"/>
-                <!-- After ~2s of history, warp the proxy to the sample from 20 ticks ago, replaying the -->
-                <!-- delayed path. We index (count - 20) instead of removing (no fragile list mutation). -->
-                <do_if value="ApplyState.$PosBuf.count gt 20">
-                  <set_value name="$idx" exact="ApplyState.$PosBuf.count - 20"/>
-                  <set_value name="$sample" exact="ApplyState.$PosBuf.{$idx}"/>
-                  <!-- warp sets BOTH position and rotation (the <rotation> child fixes orientation). -->
-                  <warp object="ApplyState.$ProxyShip" zone="$sample.$z">
-                    <position value="$sample.$p"/>
-                    <rotation value="$sample.$r"/>
-                  </warp>
-                  <set_value name="ApplyState.$ApplySeq" operation="add"/>
-                  <signal_cue_instantly
-                    cue="md.Named_Pipes.Write"
-                    param="table[
-                      $pipe = 'x4mp_bridge',
-                      $msg  = '{&quot;type&quot;:&quot;spike.apply_sample&quot;,&quot;seq&quot;:' + ApplyState.$ApplySeq + '}',
-                      ]"/>
-                  <set_value name="ApplyState.$EmitCtr" operation="add"/>
-                  <do_if value="ApplyState.$EmitCtr ge 10">
-                    <set_value name="ApplyState.$EmitCtr" exact="0"/>
-                    <signal_cue_instantly
-                      cue="md.Named_Pipes.Write"
-                      param="table[
-                        $pipe = 'x4mp_bridge',
-                        $msg  = '{&quot;type&quot;:&quot;spike.apply_pos&quot;,&quot;seq&quot;:' + ApplyState.$ApplySeq
-                          + ',&quot;proxy_x&quot;:' + (ApplyState.$ProxyShip.position.x / 1m)
-                          + ',&quot;proxy_z&quot;:' + (ApplyState.$ProxyShip.position.z / 1m)
-                          + ',&quot;src_x&quot;:' + ($src.position.x / 1m)
-                          + ',&quot;src_z&quot;:' + ($src.position.z / 1m) + '}',
-                        ]"/>
-                  </do_if>
-                </do_if>
               </do_elseif>
+            </do_if>
+          </actions>
+        </cue>
+
+        <!-- Human: ~40 Hz PLAYBACK. Advances a fractional cursor through the recorded buffer and -->
+        <!-- Human: warps the proxy to a position linearly interpolated between the two bracketing -->
+        <!-- Human: 10Hz samples — so the visible teleport steps shrink ~4x. Rotation is snapped to the -->
+        <!-- Human: forward sample (orientation already matched well at 10Hz; angle slerp is overkill). -->
+        <!-- Agent: WARPS ApplyState.$ProxyShip via <warp> (the only working reposition primitive). -->
+        <!-- Agent: Cursor = $Base (int, 1-based) + $Frac (0..1). Free-runs at $Step, then clamps to a -->
+        <!-- Agent: window behind the newest recorded sample so it never extrapolates past real data -->
+        <!-- Agent: and never lags unbounded (self-corrects regardless of the real MD tick rate). -->
+        <!-- Agent: EMITS spike.apply_pos {seq, proxy/src coords} ~1Hz so the server proves it moved. -->
+        <cue name="Spike_ApplyWarp" instantiate="true" checkinterval="0.025s">
+          <conditions>
+            <check_value value="ApplyState.$ApplyActive" exact="true"/>
+          </conditions>
+          <actions>
+            <!-- Need a live proxy and at least $Delay+2 samples so a forward bracket always exists. -->
+            <do_if value="ApplyState.$ProxyShip.exists and ApplyState.$PosBuf.count gt (ApplyState.$Delay + 2)">
+              <!-- desired = newest index minus the delay; advances by 1 every 0.1s as recording grows. -->
+              <set_value name="$desired" exact="ApplyState.$PosBuf.count - ApplyState.$Delay"/>
+
+              <!-- First playable tick: snap the cursor onto the delayed sample. -->
+              <do_if value="not ApplyState.$PlayReady">
+                <set_value name="ApplyState.$Base" exact="$desired"/>
+                <set_value name="ApplyState.$Frac" exact="0.0"/>
+                <set_value name="ApplyState.$PlayReady" exact="true"/>
+              </do_if>
+
+              <!-- Advance fractional cursor; carry into the integer base (single carry: $Step < 1). -->
+              <set_value name="$frac" exact="ApplyState.$Frac + ApplyState.$Step"/>
+              <set_value name="$base" exact="ApplyState.$Base"/>
+              <do_if value="$frac ge 1.0">
+                <set_value name="$frac" exact="$frac - 1.0"/>
+                <set_value name="$base" exact="$base + 1"/>
+              </do_if>
+
+              <!-- Clamp: never pass 'desired' (no extrapolation); never lag > 6 samples (snap forward). -->
+              <do_if value="$base gt $desired">
+                <set_value name="$base" exact="$desired"/>
+                <set_value name="$frac" exact="0.0"/>
+              </do_if>
+              <do_if value="$base lt ($desired - 6)">
+                <set_value name="$base" exact="$desired - 6"/>
+                <set_value name="$frac" exact="0.0"/>
+              </do_if>
+
+              <set_value name="ApplyState.$Base" exact="$base"/>
+              <set_value name="ApplyState.$Frac" exact="$frac"/>
+
+              <!-- Bracket samples A (current) and B (next). $base <= desired < count, so B exists. -->
+              <set_value name="$A" exact="ApplyState.$PosBuf.{$base}"/>
+              <set_value name="$Bi" exact="$base + 1"/>
+              <set_value name="$B" exact="ApplyState.$PosBuf.{$Bi}"/>
+
+              <do_if value="$A.$z == $B.$z">
+                <!-- Same zone: linearly interpolate each position component by $frac, snap rotation to B. -->
+                <set_value name="$ix" exact="$A.$p.x + ($B.$p.x - $A.$p.x) * $frac"/>
+                <set_value name="$iy" exact="$A.$p.y + ($B.$p.y - $A.$p.y) * $frac"/>
+                <set_value name="$iz" exact="$A.$p.z + ($B.$p.z - $A.$p.z) * $frac"/>
+                <warp object="ApplyState.$ProxyShip" zone="$B.$z">
+                  <position x="$ix" y="$iy" z="$iz"/>
+                  <rotation value="$B.$r"/>
+                </warp>
+              </do_if>
+              <do_else>
+                <!-- Zone changed between A and B: don't interpolate across zones — snap to B. -->
+                <warp object="ApplyState.$ProxyShip" zone="$B.$z">
+                  <position value="$B.$p"/>
+                  <rotation value="$B.$r"/>
+                </warp>
+              </do_else>
+
+              <set_value name="ApplyState.$ApplySeq" operation="add"/>
+              <!-- Throttle pipe output to ~1Hz (40 warp ticks) so we don't flood the bridge. -->
+              <set_value name="ApplyState.$EmitCtr" operation="add"/>
+              <do_if value="ApplyState.$EmitCtr ge 40">
+                <set_value name="ApplyState.$EmitCtr" exact="0"/>
+                <signal_cue_instantly
+                  cue="md.Named_Pipes.Write"
+                  param="table[
+                    $pipe = 'x4mp_bridge',
+                    $msg  = '{&quot;type&quot;:&quot;spike.apply_pos&quot;,&quot;seq&quot;:' + ApplyState.$ApplySeq
+                      + ',&quot;proxy_x&quot;:' + (ApplyState.$ProxyShip.position.x / 1m)
+                      + ',&quot;proxy_z&quot;:' + (ApplyState.$ProxyShip.position.z / 1m)
+                      + ',&quot;base&quot;:' + ApplyState.$Base
+                      + ',&quot;count&quot;:' + ApplyState.$PosBuf.count + '}',
+                    ]"/>
+              </do_if>
             </do_if>
           </actions>
         </cue>
