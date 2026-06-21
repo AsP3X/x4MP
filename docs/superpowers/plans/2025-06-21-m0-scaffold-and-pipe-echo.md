@@ -93,6 +93,22 @@ pub struct HandshakePayload {
     pub game_version: String,
     pub mods_fingerprint: String,
     pub join_code: String,
+    pub display_name: String,
+}
+```
+
+Add a name-validation helper (format only in M0; uniqueness enforced server-side in M3):
+
+```rust
+// Human: Validate a player-chosen display name. Trims, collapses whitespace.
+// Agent: RETURNS Ok(normalized) or Err(reason) -> server maps to INVALID_NAME.
+pub fn normalize_display_name(raw: &str) -> Result<String, &'static str> {
+    let name = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    match name.chars().count() {
+        1..=24 => Ok(name),
+        0 => Err("empty"),
+        _ => Err("too_long"),
+    }
 }
 ```
 
@@ -188,7 +204,8 @@ Create `proto/tests/fixtures/handshake.json`:
     "bridge_version": "0.1.0",
     "game_version": "7.5",
     "mods_fingerprint": "sha256:0000",
-    "join_code": "ABCD-1234"
+    "join_code": "ABCD-1234",
+    "display_name": "Alice"
   }
 }
 ```
@@ -282,7 +299,7 @@ pub use handshake::{HandshakePayload, PROTO_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-const HANDSHAKE: &str = r#"{"v":1,"type":"handshake","session_id":"00000000-0000-0000-0000-000000000000","seq":0,"timestamp_sim":0.0,"sender_id":"00000000-0000-0000-0000-000000000002","authority":"client","payload":{"mod_version":"0.1.0","proto_version":1,"bridge_version":"0.1.0","game_version":"7.5","mods_fingerprint":"sha256:0000","join_code":"ABCD-1234"}}"#;
+const HANDSHAKE: &str = r#"{"v":1,"type":"handshake","session_id":"00000000-0000-0000-0000-000000000000","seq":0,"timestamp_sim":0.0,"sender_id":"00000000-0000-0000-0000-000000000002","authority":"client","payload":{"mod_version":"0.1.0","proto_version":1,"bridge_version":"0.1.0","game_version":"7.5","mods_fingerprint":"sha256:0000","join_code":"ABCD-1234","display_name":"Alice"}}"#;
 
 #[tokio::test]
 async fn ws_echoes_envelope_with_seq() {
@@ -361,7 +378,8 @@ WS flow:
    - `proto_version == PROTO_VERSION` else `INCOMPATIBLE_VERSION`
    - `join_code` matches session (M0: fixed dev code) else `INVALID_JOIN_CODE`
    - `game_version` / `mods_fingerprint` (M0: accepted leniently; strict check in M3) else `INCOMPATIBLE_GAME_VERSION` / `INCOMPATIBLE_MODS`
-3. Respond `handshake.ack` (with assigned `client_id`) or the matching `WsErrorFrame` then close
+   - `display_name` via `normalize_display_name` else `INVALID_NAME` (M0: format only; per-session uniqueness → `NAME_TAKEN` lands with the session registry in M3)
+3. Respond `handshake.ack` (with assigned `client_id` and confirmed `display_name`) or the matching `WsErrorFrame` then close
 4. Subsequent messages: parse `EventEnvelope`, assign `seq`, echo with span fields logged
 
 Invalid JSON → `WsErrorFrame`. A game event received before handshake → `WsErrorFrame::new("HANDSHAKE_REQUIRED", ...)`. Use `tracing_subscriber` with env filter in `main`.
@@ -419,7 +437,7 @@ Test spawns server, bridge performs handshake then sends `session.ping`, asserts
 
 - [ ] **Step 3: Implement `ws_client` module**
 
-Connect to `X4MP_SERVER_URL` (default `ws://127.0.0.1:7878/ws`). Send handshake first with crate version constants (env vars or build constants for `game_version`/`mods_fingerprint`/`join_code` in M0). Propagate `trace_id` in spans matching server.
+Connect to `X4MP_SERVER_URL` (default `ws://127.0.0.1:7878/ws`). Send handshake first with crate version constants; read `game_version`/`mods_fingerprint`/`join_code`/`display_name` from env vars (`X4MP_DISPLAY_NAME`, default `Player`) in M0. Propagate `trace_id` in spans matching server.
 
 - [ ] **Step 4: Implement `offline_buffer` trait (stub)**
 
@@ -579,6 +597,7 @@ On test hook or `event.rejected`, write `data/debug_bundle/<timestamp>/meta.json
 
 - [x] Spec M0 (bridge pipe loop + server echo) covered
 - [x] Handshake with compat fields (proto/game/mods/join_code) + reject codes
+- [x] Player `display_name` in handshake (format-validated; uniqueness in M3)
 - [x] Echo test handshakes first (matches server requirement)
 - [x] proto dev-deps declared for integration tests (serde_json, uuid)
 - [x] handshake.rs imports serde

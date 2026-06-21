@@ -16,6 +16,7 @@ A co-op multiplayer mod for **X4: Foundations** that lets 2+ players share one u
 | Time | Locked shared time; SETA disabled or unanimous consent |
 | Factions | Hybrid — players can share a faction or run their own |
 | Session | Session-based — universe runs while players are connected |
+| Player identity | Player-chosen, session-unique `display_name` for easy identification |
 | v1 authority | Host player's X4 instance simulates the world |
 | Long-term | Server-authoritative sim without X4 (major future phase) |
 | Tech stack | Rust (server + bridge), X4 extension (MD + Lua) |
@@ -100,9 +101,9 @@ This policy is the single biggest determinant of whether co-op feels coherent. I
 ### Connection lifecycle
 
 1. Bridge opens WebSocket
-2. **Handshake** — client sends `handshake` (versions, compatibility fingerprint, `join_code`)
-3. Server validates: `proto_version`, `game_version`, `mods_fingerprint`, and `join_code`. On any mismatch → error frame (hard stop, see codes below)
-4. Server responds `handshake.ack` + `client_id` + assigned `session_id`
+2. **Handshake** — client sends `handshake` (versions, compatibility fingerprint, `join_code`, chosen `display_name`)
+3. Server validates: `proto_version`, `game_version`, `mods_fingerprint`, `join_code`, and `display_name` (format + uniqueness). On any mismatch → error frame (hard stop, see codes below)
+4. Server responds `handshake.ack` + `client_id` + assigned `session_id` + confirmed `display_name`
 5. Host loads shared save → `WORLD_READY` + save hash
 6. Clients download save → load locally → verify hash → `CLIENT_READY`
 7. Server broadcasts `SESSION_START`
@@ -121,7 +122,8 @@ This policy is the single biggest determinant of whether co-op feels coherent. I
     "bridge_version": "0.1.0",
     "game_version": "7.5",
     "mods_fingerprint": "sha256:<hash of active extension ids+versions>",
-    "join_code": "ABCD-1234"
+    "join_code": "ABCD-1234",
+    "display_name": "Alice"
   }
 }
 ```
@@ -134,8 +136,10 @@ Rejection codes (hard stop, never proceed to game events):
 | `INCOMPATIBLE_GAME_VERSION` | `game_version` mismatch between players |
 | `INCOMPATIBLE_MODS` | `mods_fingerprint` mismatch (different installed extension set) |
 | `INVALID_JOIN_CODE` | Wrong or missing `join_code` for the session |
+| `INVALID_NAME` | `display_name` fails format rules (see § Player names) |
+| `NAME_TAKEN` | `display_name` already used by another connected player in the session |
 
-`mod_version` mismatch may warn but proceed only if explicitly allowed in session config. The `mods_fingerprint` check is the primary defense against silent desync from differing mod sets.
+`mod_version` mismatch may warn but proceed only if explicitly allowed in session config. The `mods_fingerprint` check is the primary defense against silent desync from differing mod sets. On `NAME_TAKEN`/`INVALID_NAME` the client is prompted to choose a different name and re-handshake — these are recoverable, not fatal.
 
 ### Event envelope
 
@@ -164,7 +168,7 @@ Rejection codes (hard stop, never proceed to game events):
 | Handshake | `handshake`, `handshake.ack` |
 | Session | `session.create`, `session.join`, `session.leave`, `session.resume`, `session.start`, `session.end`, `session.save`, `session.ping` |
 | Time | `time.set_speed`, `time.seta_request`, `time.seta_vote` |
-| Player | `player.spawn`, `player.despawn`, `player.control_claim`, `player.control_release` |
+| Player | `player.spawn`, `player.despawn`, `player.rename`, `player.control_claim`, `player.control_release` |
 | Ship | `ship.state_snapshot`, `ship.order`, `ship.position_delta`, `ship.damaged`, `ship.destroyed` |
 | Station | `station.build_start`, `station.build_complete`, `station.storage_delta` |
 | Trade | `trade.executed`, `trade.offer` |
@@ -192,8 +196,20 @@ Rejection codes (hard stop, never proceed to game events):
 
 - `player_id` (persistent account UUID)
 - `session_player_id` (this session)
+- `display_name` (player-chosen, human-readable — see § Player names)
 - `faction_id` (nullable — independent if null)
 - `controlled_entities[]`
+
+### Player names
+
+Every player picks their own `display_name` so they are easily identified across all UI (player list, ship nameplates, chat, debug overlay, logs).
+
+- **Chosen at connect** in the handshake; confirmed in `handshake.ack`.
+- **Format:** 1–24 characters after trimming; printable Unicode; collapsed internal whitespace. Fails → `INVALID_NAME`.
+- **Unique per session** (case-insensitive). Collision → `NAME_TAKEN`; client re-prompts and re-handshakes. Uniqueness is what makes names a reliable identifier.
+- **Changeable mid-session** via `player.rename { session_player_id, display_name }`; server re-validates (format + uniqueness) and broadcasts the new name, or rejects with the same codes.
+- **Identity vs. display:** all wire references use `session_player_id`/`player_id` (stable). `display_name` is presentation only — never used as a key, so renames never break entity ownership or ACL.
+- **Persistence:** the last-used name is remembered per `player_id` as a default for future sessions; the session value still wins on conflict.
 
 ### Faction types
 
@@ -216,7 +232,7 @@ Rejection codes (hard stop, never proceed to game events):
 
 ### Proxy rendering
 
-Remote ships render as **proxy entities** (model + nameplate, interpolated position). Host snapshots drive loadout/AI state.
+Remote ships render as **proxy entities** (model + nameplate showing the owner's `display_name`, interpolated position). Host snapshots drive loadout/AI state. Nameplates update live on `player.rename`.
 
 ## Entity ID mapping
 
