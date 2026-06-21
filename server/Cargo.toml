@@ -1,0 +1,30 @@
+[package]
+name = "x4mp-server"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "x4mp_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "x4mp-server"
+path = "src/main.rs"
+
+[dependencies]
+x4mp-proto = { path = "../proto" }
+axum = { version = "0.8", features = ["ws"] }
+futures-util = "0.3"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
+serde_json.workspace = true
+uuid.workspace = true
+x4mp-proto = { path = "../proto" }

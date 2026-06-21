@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "session.ping",
+  "session_id": "00000000-0000-0000-0000-000000000001",
+  "seq": 0,
+  "timestamp_sim": 0.0,
+  "sender_id": "00000000-0000-0000-0000-000000000002",
+  "authority": "client",
+  "payload": {}
+}

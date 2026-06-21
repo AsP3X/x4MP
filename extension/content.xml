@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<content id="x4mp" name="X4 Multiplayer" author="X4MP Contributors" version="0.1.0" date="2025-06-21" save="0" enabled="1">
+  <text language="44" name="X4 Multiplayer" description="Host-authoritative multiplayer for X4 Foundations (M0 skeleton)." />
+</content>

@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "handshake",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "seq": 0,
+  "timestamp_sim": 0.0,
+  "sender_id": "00000000-0000-0000-0000-000000000002",
+  "authority": "client",
+  "payload": {
+    "mod_version": "0.1.0",
+    "proto_version": 1,
+    "bridge_version": "0.1.0",
+    "game_version": "7.5",
+    "mods_fingerprint": "sha256:0000",
+    "join_code": "ABCD-1234",
+    "display_name": "Alice"
+  }
+}

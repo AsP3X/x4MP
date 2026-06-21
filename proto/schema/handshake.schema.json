@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://x4mp.dev/schema/handshake.schema.json",
+  "title": "handshake",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "session_id",
+    "seq",
+    "timestamp_sim",
+    "sender_id",
+    "authority",
+    "payload"
+  ],
+  "properties": {
+    "v": { "type": "integer", "const": 1 },
+    "type": { "type": "string", "const": "handshake" },
+    "session_id": { "type": "string", "format": "uuid" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "timestamp_sim": { "type": "number" },
+    "sender_id": { "type": "string", "format": "uuid" },
+    "authority": { "type": "string", "enum": ["client"] },
+    "payload": {
+      "type": "object",
+      "required": [
+        "mod_version",
+        "proto_version",
+        "bridge_version",
+        "game_version",
+        "mods_fingerprint",
+        "join_code",
+        "display_name"
+      ],
+      "properties": {
+        "mod_version": { "type": "string" },
+        "proto_version": { "type": "integer" },
+        "bridge_version": { "type": "string" },
+        "game_version": { "type": "string" },
+        "mods_fingerprint": { "type": "string" },
+        "join_code": { "type": "string" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 24 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

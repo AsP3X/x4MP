@@ -1,0 +1,2 @@
+-- Human: Debug overlay stub — implemented in M1 (connection state, RTT, seq, hash).
+-- Agent: M0 placeholder only; no UI frame registered yet.

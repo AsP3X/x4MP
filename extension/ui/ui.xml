@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon name="x4mp" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../ui/core/addons.xsd">
+  <environment name="custom_gamestart_x4mp">
+    <file name="ui/x4mp_init.lua" />
+  </environment>
+</addon>
