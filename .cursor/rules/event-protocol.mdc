@@ -1,0 +1,61 @@
+---
+description: Event envelope, versioning, and schema change rules for proto/server/bridge
+globs: "{proto/**,server/**,bridge/**}"
+alwaysApply: false
+---
+
+# Event protocol
+
+Canonical spec: design doc § Wire Protocol.
+
+## Envelope (required on every message)
+
+Every event must include: `v`, `type`, `session_id`, `seq`, `timestamp_sim`, `sender_id`, `authority`, `payload`.
+
+- **`v`**: protocol version (currently `1`). Bump only with migration plan.
+- **`seq`**: assigned by **server** on ingest; monotonic per session.
+- **`timestamp_sim`**: in-game time, not wall clock.
+- **`authority`**: `"host"` | `"server"` | `"client"` — who may originate this event type.
+
+## Event naming
+
+- Format: `category.action` (e.g. `ship.order`, `session.join`).
+- New types: add to `proto/src/events/`, JSON Schema in `proto/schema/`, and round-trip test.
+
+## Schema changes
+
+- **Additive** (new optional payload fields): allowed; bump nothing.
+- **Breaking** (rename/remove/retype): bump `v` or use new `type`; update all consumers in same change set.
+- Never silently change meaning of an existing `type`.
+
+## Forbidden patterns
+
+- Client-originated `npc.*` or `host.*` events.
+- Events without server-assigned `seq` on the wire (bridge may omit locally; server adds before broadcast).
+- Floating wall-clock timestamps as ordering keys.
+
+## Golden fixtures (required)
+
+Every event `type` must have:
+
+- `proto/tests/fixtures/<type>.json` — canonical JSON example
+- Entry in `proto/tests/fixtures_test.rs` that loads, parses, and round-trips
+
+Adding a new `type` without a fixture is a plan failure.
+
+## Handshake frames
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `handshake` | client → server | `mod_version`, `proto_version`, `bridge_version` |
+| `handshake.ack` | server → client | accepted versions + assigned `client_id` |
+
+Mismatch → `WsErrorFrame` with code `INCOMPATIBLE_VERSION`.
+
+## Entity IDs on the wire
+
+Never put raw X4 internal ids on the wire without mapping. Use stable `entity_id` (UUID) from the session entity map (see design spec § Entity ID mapping).
+
+## Testing requirement
+
+Every new event type needs: fixture file + round-trip test + harness scenario when behavior is session-visible.

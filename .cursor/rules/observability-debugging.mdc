@@ -1,0 +1,43 @@
+---
+description: Tracing, correlation IDs, debug bundles, and replay tooling for replication debugging
+alwaysApply: true
+---
+
+# Observability and debugging
+
+## Correlation IDs (required)
+
+Every log line in `server/` and `bridge/` must run inside a `tracing` span carrying:
+
+- `trace_id` — UUID per inbound message or connection
+- `session_id` — when known
+- `player_id` / `client_id` — when known
+- `seq` — when handling an event envelope
+
+Propagate `trace_id` in the envelope optional field `payload._debug.trace_id` during dev (strip in release if needed).
+
+## Debug bundle export
+
+On `world.hash` mismatch, `event.rejected`, or session crash, server writes:
+
+```
+data/debug_bundle/<utc-timestamp>/
+├── meta.json          # session, players, versions
+├── last_events.jsonl  # last 200 events from log
+├── acl_decisions.json # recent rejections with reason codes
+└── hashes.json        # host vs reporter hash breakdown when applicable
+```
+
+Do not delete bundles without explicit user permission (`data-safety.mdc`).
+
+## Session replay
+
+`tools/replay` must be able to replay `event.log` from `--from-seq N` against a running server or mock consumer. Use for post-mortems without launching X4.
+
+## In-game debug overlay
+
+Extension Lua must expose a dev overlay (toggle via hotkey or menu) showing: connection state, RTT, last sent/applied `seq`, sim time, `world.hash`, last WS error code. Required before M1 is marked complete.
+
+## Version handshake
+
+First WS frame after connect must be `handshake` with `mod_version`, `proto_version`, `bridge_version`. Server responds with `handshake.ack` or `INCOMPATIBLE_VERSION` error — never proceed to game events on mismatch.

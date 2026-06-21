@@ -1,0 +1,44 @@
+---
+description: WebSocket error JSON and logging for server and bridge clients
+globs: "{server/**,bridge/**}"
+alwaysApply: false
+---
+
+# WebSocket errors and logging
+
+## Canonical error frame
+
+Server-sent errors use this JSON shape on the WebSocket:
+
+```json
+{
+  "v": 1,
+  "type": "error",
+  "code": "SESSION_NOT_FOUND",
+  "message": "Session does not exist or has ended."
+}
+```
+
+- **`code`**: stable machine-readable string (SCREAMING_SNAKE).
+- **`message`**: safe for clients — no stack traces, internal paths, or secrets.
+
+## Logging vs client messages
+
+- **WebSocket `message`**: user-safe text only.
+- **Server logs (`tracing`)**: full context (session id, player id, rejected event type, internal reason).
+- **Do not log** auth tokens or full save file contents.
+
+## Bridge client
+
+- Parse `type: "error"` frames; surface `message` in bridge logs and forward a pipe message to X4 mod for UI display.
+- On protocol errors, do not crash silently — emit structured log + optional reconnect.
+
+## Anti-patterns
+
+- Plain-text WebSocket close reasons as the only error signal for recoverable failures.
+- Mixing error shapes (`{ "error": ... }` vs `{ "type": "error" }`) on the same session socket.
+- Returning internal validation details in `message` (use `code` + logs instead).
+
+## New error codes
+
+Add codes to `proto/src/error.rs` (or equivalent) and document in the same change set. Bridge and server must share the enum.

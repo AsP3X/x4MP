@@ -1,0 +1,44 @@
+---
+description: Shared universe save and checkpoint safety for multiplayer sessions
+alwaysApply: true
+---
+
+# Session save safety
+
+Multiplayer session saves are **shared universe state** — treat them as production data.
+
+## Storage layout (server)
+
+```
+data/
+├── sessions/<session_id>/
+│   ├── meta.json
+│   ├── event.log
+│   └── saves/
+│       ├── latest.x4s
+│       └── checkpoint-<seq>.x4s
+```
+
+(Exact paths may evolve; never delete without explicit user permission.)
+
+## Rules
+
+- **Never overwrite `latest.x4s`** without writing a new checkpoint first when a prior save exists.
+- **Checkpoint before risky operations**: host migration, schema migration, manual save restore.
+- **Hash verification**: `WORLD_READY` must include save hash; clients verify after download.
+- **Do not commit** save blobs or `data/` contents to git (see `git-commits.mdc`).
+
+## Restore flow
+
+1. Stop session (pause sim).
+2. Copy target checkpoint to staging path.
+3. Verify hash matches event log seq.
+4. Host loads staging save; emit `session.save` with new hash.
+
+## Agent actions
+
+Before deleting or replacing any file under `data/sessions/`:
+
+1. State the file path and session id.
+2. Confirm no active connections (or session is ended).
+3. Require explicit user permission per `data-safety.mdc`.

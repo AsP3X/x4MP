@@ -1,0 +1,64 @@
+---
+description: X4 extension mod conventions — MD, Lua, Named Pipes, content.xml
+globs: "extension/**"
+alwaysApply: false
+---
+
+# X4 extension mod
+
+## Dependencies
+
+- **SirNuke Mod Support APIs** (Named Pipes) — required; Protected UI Mode must be disabled.
+- Target **Windows** for v1 (Named Pipes API is Windows-only).
+
+## Structure
+
+```
+extension/
+├── content.xml
+├── md/           # Mission Director — replication cues
+├── ui/           # Lua — menus, HUD, pipe client
+└── ui/ui.xml     # Lua loader (X4 7.5+)
+```
+
+## MD conventions
+
+- One file per concern (e.g. `md/x4mp_capture.xml`, `md/x4mp_apply.xml`).
+- Cue names prefixed `md.X4MP.*` to avoid mod conflicts.
+- Wait for setup: `<event_cue_signalled cue="md.Setup.Start"/>` on init cues.
+- **Capture cues** emit to Lua/pipe on player actions (orders, trade, build).
+- **Apply cues** receive remote events and mutate game state idempotently where possible.
+
+## Lua conventions
+
+- Pipe I/O lives in one module (`ui/x4mp_pipe.lua`); MD raises events, Lua serializes.
+- UI: host/join flow, player list, connection status, SETA vote UI.
+- Do not open network sockets from Lua — use Named Pipes → bridge only.
+
+## Replication hooks
+
+When adding a hook:
+
+1. Document which event type it maps to.
+2. Include entity ownership check before emit (match server ACL intent).
+3. Add comment with `-- Agent: EMITS ship.order WHEN ...`.
+
+## Debug overlay (required from M1)
+
+`ui/x4mp_debug_overlay.lua` — dev HUD showing:
+
+- Connection state and RTT
+- Last sent / last applied `seq`
+- Locked sim time and speed
+- Current `world.hash`
+- Last WS error `code` + `message`
+
+Toggle via menu or hotkey. Must be functional before M1 sign-off.
+
+## Entity ID mapping
+
+Lua/MD must not emit raw X4 ids on the wire. Use bridge/session entity map (`entity_id` UUID). Mapping cues live in `md/x4mp_entity_map.xml`.
+
+## Testing
+
+Extension changes require manual X4 smoke (see `regression-testing.mdc`). Harness tests cover protocol; X4 smoke covers apply/capture hooks.

@@ -1,0 +1,38 @@
+---
+description: Mandatory inline comments (human + optional AI-digestible line) on Rust, Lua, and replication MD/XML
+alwaysApply: true
+---
+
+# Inline documentation (required)
+
+**Applies to `*.rs`, `*.lua`, and replication hooks in `extension/md/*.xml`.**
+
+**All new or modified code in these files must include clean, human-readable inline comments.** Where behavior is non-trivial, **each such comment must also include an `// Agent:` line** (Lua: `-- Agent:`) unless redundant.
+
+## What to comment
+
+- **Every non-trivial module, function, or cue handler**: purpose and side effects.
+- **Non-obvious logic**: why something is done, edge cases, ordering constraints.
+- **Replication-sensitive code**: authority (host/client/server), event types emitted/consumed.
+
+## AI-oriented line (when applicable)
+
+- **Rust:** `// Human:` and `// Agent:`
+- **Lua:** `-- Human:` and `-- Agent:`
+
+On the **Agent** line, prefer structured phrasing: `READS`, `WRITES`, `CALLS`, `RETURNS`, `EMITS`, `APPLIES`, env vars, failure modes.
+
+## Style
+
+- Place comments **above** the code they describe.
+- Keep comments **up to date** when behavior changes.
+
+## MD/XML (replication cues)
+
+- Comment **every cue** that EMITS or APPLIES a wire event.
+- Use XML comments: `<!-- Human: ... -->` and `<!-- Agent: EMITS ship.order WHEN ... -->`
+- See also `x4-extension-mod.mdc`.
+
+## Out of scope
+
+- Do not comment every trivial line. **Do** comment anything another developer would need to edit safely.

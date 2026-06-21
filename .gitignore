@@ -1,0 +1,6 @@
+/target/
+/data/
+.env
+*.x4s
+.DS_Store
+Thumbs.db

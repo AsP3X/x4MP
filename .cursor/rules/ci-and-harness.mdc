@@ -1,0 +1,42 @@
+---
+description: CI pipeline and X4-free sim harness for replication integration tests
+alwaysApply: true
+---
+
+# CI and sim harness
+
+## Continuous integration
+
+`.github/workflows/ci.yml` must run on every push/PR to `dev` and `master`:
+
+```bash
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
+```
+
+Optional (when fixtures exist): `cargo test -p x4mp-proto --test fixtures`
+
+Agents must not claim workspace changes complete without these passing locally when Rust code changed.
+
+## Sim harness (no X4 required)
+
+Integration tests under `server/tests/` simulate fake host + client bridges (see `two_client_harness.rs`) — no X4 required.
+
+- Fake host bridge + fake client bridge(s) over real WebSocket
+- Handshake, seq ordering, broadcast, ACL rejection, reconnect replay
+
+New replication behavior must add or extend a harness test before manual X4 smoke.
+
+## Golden fixtures
+
+Every event `type` in `proto/` must have `proto/tests/fixtures/<type>.json` validated by a dedicated test. See `event-protocol.mdc`.
+
+## Chaos mode (dev only)
+
+Bridge supports `cfg(feature = "dev-chaos")` and env vars:
+
+- `X4MP_CHAOS_LATENCY_MS` — added RTT
+- `X4MP_CHAOS_DROP_RATE` — fraction of outbound frames dropped
+- `X4MP_CHAOS_DISCONNECT_AFTER` — force disconnect after N seconds
+
+Never enable chaos features in release builds.

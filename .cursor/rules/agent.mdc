@@ -1,0 +1,13 @@
+---
+alwaysApply: true
+---
+
+# Agent non-negotiables
+
+- Treat rules in `.cursor/rules/` as binding requirements, not suggestions.
+- **Data-destructive actions** must strictly follow **`data-safety.mdc`** and **`session-save-safety.mdc`**. Never wipe session saves, checkpoints, or X4 universe files without explicit user permission.
+- **Git operations** must strictly follow **`git-commits.mdc`**. If any instruction conflicts with convenience or speed, follow `git-commits.mdc`.
+- If a requested git action is ambiguous (commit/push/merge/rebase intent is not explicit), stop and ask before running the command.
+- **Architecture constraints** in **`x4mp-architecture.mdc`** are binding for all multiplayer/replication work.
+- **Observability and debugging** must follow **`observability-debugging.mdc`** and **`ci-and-harness.mdc`** for tracing, fixtures, harness tests, and CI.
+- Never bypass commit safeguards silently; explain the blocker and ask for explicit confirmation when required by rule.

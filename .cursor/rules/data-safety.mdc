@@ -1,0 +1,44 @@
+---
+description: Forbid destructive or data-loss actions without explicit user permission
+alwaysApply: true
+---
+
+# Data safety (mandatory)
+
+**Do not run, recommend, or chain commands that can destroy, wipe, or irreversibly alter user data** unless the user **clearly and explicitly** asked for that specific destructive outcome in the current request.
+
+When in doubt, **stop**, explain the risk, and ask before proceeding.
+
+## What counts as explicit permission
+
+The user must **name the destructive action** or clearly accept data loss, for example:
+
+- "Delete the session save in `data/sessions/`"
+- "Wipe local server database"
+- "Remove all checkpoint files for session X"
+
+**Not sufficient on their own:** "fix it", "clean up", "reset", "start fresh", "make it work".
+
+## Forbidden without explicit permission
+
+### Session and game data
+
+- Deleting files under `data/sessions/`, `data/checkpoints/`, or user X4 save directories
+- Overwriting a shared universe save without backup when a checkpoint exists
+- Truncating the server event log for an active session
+
+Prefer: read-only inspection, copy to backup path first, new checkpoint files instead of overwriting.
+
+### Files and repositories
+
+- `rm -rf` on project trees or user home paths
+- Mass deletion of files the user did not name
+- `git reset --hard`, `git clean -fdx`, force-push — follow `git-commits.mdc`; ask when intent is unclear
+
+## When blocked
+
+1. State **what** would be destroyed or changed.
+2. Offer **non-destructive** next steps (logs, read-only checks, backup).
+3. Ask the user to confirm explicitly if they want the destructive path.
+
+Also follow **`session-save-safety.mdc`** for multiplayer-specific save handling.

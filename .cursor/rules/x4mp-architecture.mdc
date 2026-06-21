@@ -1,0 +1,44 @@
+---
+description: Core multiplayer architecture constraints — host authority, event log, no lockstep
+alwaysApply: true
+---
+
+# X4MP architecture (binding)
+
+Design spec: `docs/superpowers/specs/2025-06-21-x4-multiplayer-design.md`
+
+## Non-negotiables (v1)
+
+- **Host-authoritative world sim.** Only the host X4 instance creates NPC/economy truth. Clients apply host events; they do not simulate shared NPC state locally.
+- **No input lockstep.** Do not attempt deterministic lockstep across clients — X4 is not deterministic.
+- **Central server owns session state.** Event log, seq assignment, ACL, and save storage live on the server — not peer-to-peer between clients.
+- **Locked shared time.** One sim speed per session; SETA requires unanimous consent or is disabled.
+- **Event-sourced replication.** Prefer append-only events over ad-hoc RPC. New behavior = new event types in `proto/`.
+
+## Component boundaries
+
+| Component | Responsibility | Must NOT |
+|-----------|----------------|----------|
+| `extension/` | Capture/apply in-game state via MD/Lua; pipe I/O | Open WebSockets directly |
+| `bridge/` | Named pipes ↔ WebSocket; reconnect buffer | Authoritative game rules |
+| `server/` | Sessions, ACL, event log, saves | Run X4 or simulate full galaxy (v1) |
+| `proto/` | Shared types and schema | Game-specific MD/Lua logic |
+
+## Adding features
+
+Before implementing replication for a new game action:
+
+1. Define event type(s) in `proto/` with **golden fixture** + tests.
+2. Add server validation + ACL rule.
+3. Map X4 entity ids through session entity map — never raw X4 ids on wire.
+4. Host: capture and emit on authority.
+5. Client: apply incoming event via MD cue.
+6. Add harness scenario if session-visible; document manual smoke steps.
+
+## Observability
+
+Follow `observability-debugging.mdc`: tracing spans, debug bundles, replay tool, in-game overlay (M1+).
+
+## Long-term (Phase C)
+
+Event schema must remain stable when moving simulation to the server. Do not embed X4-internal IDs in wire format without a documented mapping layer.

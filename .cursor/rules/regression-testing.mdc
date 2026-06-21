@@ -1,0 +1,52 @@
+---
+description: Regression testing requirements when adding or changing features
+alwaysApply: true
+---
+
+# Regression testing
+
+New features and refactors must **not break existing behavior**. Treat regression protection as part of the feature, not optional cleanup.
+
+## Mindset
+
+- **Preserve contracts**: WebSocket message shapes (`websocket-error-shape.mdc`), event envelope fields (`event-protocol.mdc`), ACL rules, and session lifecycle must stay stable unless the task documents a breaking change and updates all consumers in the same work.
+- **Test the blast radius**: Ask what existing paths your change touches (bridge pipes, server session state, event seq ordering, extension hooks).
+
+## Test inventory (this repo)
+
+| Area | Automated checks | Notes |
+| --- | --- | --- |
+| **CI (GitHub Actions)** | `cargo test --workspace`, `cargo clippy --workspace -- -D warnings` | Required on PR; see `ci-and-harness.mdc`. |
+| **Workspace (`proto/`, `server/`, `bridge/`)** | `cargo test --workspace` | Harness in `server/tests/two_client_harness.rs` — no X4 needed. |
+| **Protocol (`proto/`)** | `cargo test -p x4mp-proto`, fixture tests | Golden JSON per event type in `proto/tests/fixtures/`. |
+| **Replay tool (`tools/replay`)** | Manual + integration | Replay `event.log` from `--from-seq N` after server changes. |
+| **Extension (`extension/`)** | Manual smoke in X4 | Two-instance LAN; debug overlay visible during test. |
+
+From repo root:
+
+```bash
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
+```
+
+## Verification matrix (by change type)
+
+| You changed… | Required checks |
+| --- | --- |
+| **Event type or envelope** | `cargo test -p x4mp-proto`; update `proto/schema/`; extend round-trip tests |
+| **Server session / ACL** | `cargo test -p x4mp-server`; add integration test when behavior is WS-visible |
+| **Bridge pipe or reconnect** | `cargo test -p x4mp-bridge`; manual pipe echo smoke |
+| **Extension MD/Lua hooks** | Manual 2-client X4 smoke; document steps in PR/commit body |
+| **Cross-cutting refactor** | Full workspace test suite + clippy on touched crates |
+
+## Manual smoke paths (replication)
+
+1. **M0** — Handshake succeeds; bridge pipe echo; harness two-client test passes; CI green.
+2. **M0.5** — `tools/replay --from-seq 1` reproduces echo session from log file.
+3. **M0.75 (gate)** — Spike notes document capture rate, proxy apply smoothness, and divergence boundary; go/no-go recorded before M1.
+4. **M1** — Host ship moves; client proxy updates <200 ms (LAN); debug overlay shows seq/hash.
+5. **Session** — Join, disconnect, reconnect; `session.resume` replays unsent events from `from_seq`.
+6. **Save** — Checkpoint upload/download; hash matches host `WORLD_READY`.
+7. **Desync** — Forced hash mismatch writes `data/debug_bundle/`; bundle attached to bug report.
+
+Report which commands, harness tests, and smokes you ran when claiming completion.
