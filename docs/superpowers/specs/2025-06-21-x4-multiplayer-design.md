@@ -112,10 +112,22 @@ This policy is the single biggest determinant of whether co-op feels coherent. I
 
 ### Version & compatibility handshake
 
+**Wire framing:** the `handshake` and `handshake.ack` frames travel as a full
+`EventEnvelope` (same struct as every other message) so the server has a single
+parse/echo path. Because no session or `client_id` exists yet at handshake time,
+the envelope's `session_id`, `seq`, and `sender_id` are sent as nil/`0`
+placeholders and are ignored by the server; only `v`, `type`, `authority`, and
+`payload` are meaningful on the inbound `handshake`. The logical payload is:
+
 ```json
 {
   "v": 1,
   "type": "handshake",
+  "session_id": "00000000-0000-0000-0000-000000000000",
+  "seq": 0,
+  "timestamp_sim": 0.0,
+  "sender_id": "00000000-0000-0000-0000-000000000000",
+  "authority": "client",
   "payload": {
     "mod_version": "0.1.0",
     "proto_version": 1,
@@ -127,6 +139,10 @@ This policy is the single biggest determinant of whether co-op feels coherent. I
   }
 }
 ```
+
+The server replies with a `handshake.ack` envelope whose `payload` carries the
+assigned `client_id`, assigned `session_id`, and confirmed `display_name`; the
+`session_id` envelope field is also populated on the ack.
 
 Rejection codes (hard stop, never proceed to game events):
 
@@ -370,6 +386,20 @@ x4-multiplayer-mod/
 | **Phase C (long-term)** | Server-authoritative sim without X4 |
 
 **M0.75 is a hard gate.** If the spike shows X4 cannot apply external entity updates smoothly, the architecture is revisited before investing in the full M1+ protocol stack.
+
+### Security & transport hardening (tracked)
+
+Through M0–M2 the transport is plain WS with a fixed dev `join_code` and lenient compat checks — acceptable for LAN dev only. The following are **explicitly tracked** so they are not silently dropped:
+
+| Item | Target milestone |
+|------|------------------|
+| WS over TLS (wss) in non-dev configs | M3 |
+| Strict `join_code` validation + per-session secret | M3 |
+| Handshake-attempt rate limiting / backoff | M3 |
+| `display_name` uniqueness + enumeration-resistant errors | M3 |
+| Strict `game_version` / `mods_fingerprint` enforcement | M3 |
+
+These are out of M0/M0.5/M0.75 scope but are a prerequisite for any non-LAN session.
 
 ## Path to Server-Authoritative Sim (Phase C)
 
